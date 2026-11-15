@@ -2421,12 +2421,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     for(const pier of berths)bankLanding(parent,mats,pier);
     const [west,east]=riverColumns;
     const span=riverHalfWidth+bankWidth;
-    for(const [x,z,yaw] of [[west+span,-71.8,-Math.PI/2],[east-span,-70.7,Math.PI/2],
-      [west+span,9.7,-Math.PI/2],[east-span,9.2,Math.PI/2]]){
+    for(const [x,z,yaw] of [[east-span,-70.7,Math.PI/2],[west+span,9.7,-Math.PI/2]]){
       wallBrazier(parent,x,landingFloor+1.68,z,yaw,5.25,10.5);
     }
-    for(const [x,z,yaw] of [[west-span,-34,Math.PI/2],[west+span,-9.7,-Math.PI/2],
-      [east-span,-29.4,Math.PI/2],[east+span,-68.4,-Math.PI/2]]){
+    for(const [x,z,yaw] of [[west-span,-34,Math.PI/2],[east-span,-29.4,Math.PI/2],
+      [east+span,-68.4,-Math.PI/2]]){
       wallBrazier(parent,x,landingFloor+1.56,z,yaw,3.18,6.5);
     }
     buildDragonLair(parent);
@@ -2472,13 +2471,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     block(parent,tunnelMouth.x,tunnelFloor+2.81,stairExitZ-.075,stairs[1].width,.46,.15,mats.wall,false);
     underground.passage=makeGrate(parent,passageGate,false);
     underground.service=makeGrate(parent,serviceGate,true);
-    wallBrazier(parent,passageGate.x-1.13,tunnelFloor+1.49,passageGate.z+.55,Math.PI/2,1.93);
     wallBrazier(parent,passageGate.x+1.13,tunnelFloor+1.49,passageGate.z-1.04,-Math.PI/2,2.15);
     for(const [x,z,yaw] of [
-      [7.53,-15.13,0],[14.1,-12.87,Math.PI],[19.46,-17.4,-Math.PI/2],
-      [forkX+1.47,forkZ-.65,-Math.PI/2],
-      [31.92,dockZ-1.23,0],[38.19,dockZ+1.23,Math.PI],
-      [forkX-1.13,-32.1,Math.PI/2],[forkX+1.13,-40.66,-Math.PI/2]
+      [9.0,-15.13,0],[19.46,-17.4,-Math.PI/2],
+      [forkX+1.47,forkZ-.65,-Math.PI/2],[34.65,dockZ-1.23,0],
+      [forkX-1.13,-32.1,Math.PI/2],[forkX-1.13,-40.66,Math.PI/2]
     ]){
       wallBrazier(parent,x,undergroundHeight(x,z)+1.54,z,yaw);
     }
