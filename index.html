@@ -241,7 +241,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const collisions=[];
   const interactive=[];
   // Positive X is east and negative Z is north.
-  const northDoorway={x:2.91,z:-4.80,half:.78};
+  const northDoorway={x:2.91,z:-4.80,half:.78,spring:1.58,height:2.34};
   const kitchenDoorway={x:.57,z:4.80,half:.76};
   const kitchenRoom={x:.66,z:6.74,halfWidth:2.335};
   const hallPavingDepth=9.7;
@@ -302,6 +302,24 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     collisions.push({x:p.x,z:p.z,hx:w/2,hz:d/2,s:Math.sin(angle),c:Math.cos(angle)});
   }
 
+  function archProfile(half,spring,rise,segments=14){
+    return Array.from({length:segments+1},(_,i)=>{
+      const angle=Math.PI*(1-i/segments);
+      return [Math.cos(angle)*half,spring+Math.sin(angle)*rise];
+    });
+  }
+
+  function solidProfile(parent,points,z,depth,material){
+    const shape=new THREE.Shape(points.map(([x,y])=>new THREE.Vector2(x,y)));
+    const geometry=new THREE.ExtrudeGeometry(shape,{depth,bevelEnabled:false});
+    const mesh=new THREE.Mesh(geometry,material);
+    if(material.map)material.map.wrapS=material.map.wrapT=THREE.RepeatWrapping;
+    mesh.position.z=z;
+    mesh.castShadow=mesh.receiveShadow=true;
+    parent.add(mesh);
+    return mesh;
+  }
+
   function fieldWall(parent,x,y,z,width,height,turn,seed,opening=null,slope=0,paved=false){
     const rng=random(seed);
     const skin=group(parent,x,y,z,turn);
@@ -338,14 +356,29 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       }
       return next;
     }
+    const arch=opening?.spring===undefined?null:archProfile(opening.half,opening.spring,opening.height-opening.spring)
+      .map(([u,v])=>[u+opening.x,v]);
     function aroundOpening(poly){
       if(!opening)return [poly];
       const l=opening.x-opening.half,r=opening.x+opening.half,h=opening.height;
       if(poly.every(p=>p[0]<=l)||poly.every(p=>p[0]>=r)||poly.every(p=>p[1]>=h))return [poly];
       const leftPiece=cut(poly,1,0,l);
       const rightPiece=cut(poly,-1,0,-r);
-      const above=cut(cut(cut(poly,-1,0,-l),1,0,r),0,-1,-h);
-      return [leftPiece,rightPiece,above].filter(piece=>piece.length>=3);
+      let middle=cut(cut(poly,-1,0,-l),1,0,r);
+      const pieces=[leftPiece,rightPiece];
+      if(arch){
+        // Subtract the arch by clipping the remaining polygon against each chord.
+        for(let i=1;i<arch.length&&middle.length>=3;i++){
+          const [ax,ay]=arch[i-1], [bx,by]=arch[i];
+          const gradient=(by-ay)/(bx-ax);
+          const limit=gradient*ax-ay;
+          pieces.push(cut(middle,gradient,-1,limit));
+          middle=cut(middle,-gradient,1,-limit);
+        }
+      }else{
+        pieces.push(cut(middle,0,-1,-h));
+      }
+      return pieces.filter(piece=>piece.length>=3);
     }
 
     const meshes=Array.from({length:6},()=>({ pos:[], uv:[] }));
@@ -1682,28 +1715,54 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const frame=group(scene,kitchenDoorway.x,0,4.66);
     block(frame,0,.026,-.086,1.57,.06,.53,matte('hearth',1),true,.36);
     const curtainFabric=new THREE.MeshStandardMaterial({
-      map:matte('canvas',1).map,color:0x9f6b4e,roughness:1
+      map:matte('canvas',2).map,color:0xb58b68,roughness:1,side:THREE.DoubleSide
     });
-    const foldFabric=new THREE.MeshStandardMaterial({
-      map:matte('canvas',2).map,color:0x805541,roughness:1
+    const hemFabric=new THREE.MeshStandardMaterial({
+      map:matte('canvas',1).map,color:0x775844,roughness:1,side:THREE.DoubleSide
     });
     for(const x of [-.79,.79]){
       block(frame,x,1.09,0,.137,2.20,.332,matte('darkwood',2),true,.45);
     }
     block(frame,0,2.23,0,1.70,.185,.389,matte('oak',3),true,.52);
-    block(frame,0,2.093,.129,1.52,.053,.048,matte('darkwood',2),true,.47);
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(.026,.026,1.55,8),matte('iron',2));
+    pole.rotation.z=Math.PI/2;
+    pole.position.set(0,2.092,.13);
+    frame.add(pole);
+
     const panels=[];
     for(const side of [-1,1]){
-      const panel=group(frame,side*.379,0,.12);
-      for(let i=0;i<8;i++){
-        const y=1.092+(i%3)*.015;
-        const h=1.932+(i%3)*.03;
-        block(panel,(i-3.5)*.093,y,(i%2)*.031,.096,h,.062,
-          i%2===0?curtainFabric:foldFabric,i===0||i===7,.37);
+      const panel=group(frame,side*.382,0,.135);
+      const divisions=30;
+      const layers=[0,.035,.37,.71,1];
+      function clothVertex(u,v){
+        const ripple=Math.sin(u*Math.PI*8+side*.32);
+        const bottom=1.065+.041*Math.sin(Math.PI*u)+.019*Math.sin(u*Math.PI*6+side*.8);
+        const width=.711+(1-v)*.013;
+        return [(u-.50)*width,THREE.MathUtils.lerp(bottom,2.058,v),ripple*(.026+.009*v)];
+      }
+      function clothStrip(material,minLayer,maxLayer){
+        const points=[],uvs=[];
+        for(let i=0;i<divisions;i++){
+          const a=i/divisions,b=(i+1)/divisions;
+          for(let j=minLayer;j<maxLayer;j++){
+            const c=layers[j],d=layers[j+1];
+            for(const [u,v] of [[a,c],[b,c],[b,d],[a,c],[b,d],[a,d]]){
+              points.push(...clothVertex(u,v));
+              uvs.push(u*2.1,v*2.5);
+            }
+          }
+        }
+        modeledMesh(panel,points,uvs,material,0);
+      }
+      clothStrip(hemFabric,0,1);
+      clothStrip(curtainFabric,1,layers.length-1);
+      for(let i=0;i<5;i++){
+        const px=(i-2)*.152;
+        block(panel,px,2.067,.004,.036,.067,.045,hemFabric,false);
       }
       panels.push({side,panel});
     }
-    const target={name:'掀开后厨门帘',kind:'curtain',point:V(kitchenDoorway.x,1.30,4.77),radius:.99};
+    const target={name:'拨开后厨门帘',kind:'curtain',point:V(kitchenDoorway.x,1.60,4.77),radius:.99};
     interactive.push(target);
     curtain={panels,opened:false,amount:0,target};
   }
@@ -1718,12 +1777,18 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       const backingZ=door.z+Math.sign(door.z)*.12;
       block(scene,(-5.95+left)/2,wallH/2,backingZ,left+5.95,wallH,.12,dark,false);
       block(scene,(right+5.95)/2,wallH/2,backingZ,5.95-right,wallH,.12,dark,false);
-      block(scene,door.x,(2.27+wallH)/2,backingZ,door.half*2,wallH-2.27,.12,dark,false);
+      if(door.spring!==undefined){
+        const arc=archProfile(door.half,door.spring,door.height-door.spring)
+          .map(([u,v])=>[u+door.x,v]);
+        solidProfile(scene,[...arc,[right,wallH],[left,wallH]],backingZ-.06,.12,dark);
+      }else{
+        block(scene,door.x,(2.27+wallH)/2,backingZ,door.half*2,wallH-2.27,.12,dark,false);
+      }
     }
     block(scene,-5.9,wallH/2,-.01,.12,wallH,9.9,dark,false);
     block(scene,5.9,wallH/2,-.01,.12,wallH,9.9,dark,false);
 
-    fieldWall(scene,0,0,-4.832,11.75,wallH,0,103,{...northDoorway,height:2.27});
+    fieldWall(scene,0,0,-4.832,11.75,wallH,0,103,northDoorway);
     fieldWall(scene,0,0,4.832,11.75,wallH,Math.PI,149,
       {x:-kitchenDoorway.x,half:kitchenDoorway.half,height:2.27});
     fieldWall(scene,-5.812,0,0,9.66,wallH,Math.PI/2,197);
@@ -1742,7 +1807,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     decorateDoor();
   }
-  function timberDoor(parent,x,z,interactiveDoor=false){
+  function timberDoor(parent,x,z){
     const door=group(parent,x,0,z);
     const hinge=group(door,-.714,0,.08);
     const leaf=group(hinge,.714,0,0);
@@ -1761,14 +1826,65 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     block(leaf,.51,1.05,.135,.114,.112,.051,matte('iron',2),true);
     block(leaf,.49,1.056,.179,.161,.045,.052,matte('darkwood',3),true);
     block(leaf,.49,1.056,-.077,.158,.044,.051,matte('iron',2),true);
-    if(interactiveDoor){
-      const target={name:'打开北门',kind:'north-door',point:V(x,1.23,z),radius:1.0};
-      interactive.push(target);
-      northDoor={hinge,opened:false,target};
-    }
   }
+
   function decorateDoor(){
-    timberDoor(scene,northDoorway.x,-4.77,true);
+    const {x,half,spring,height}=northDoorway;
+    const door=group(scene,x,0,-4.765);
+    const jamb=group(door);
+    const opening=archProfile(half-.023,spring,height-spring-.020);
+    const outside=archProfile(half+.153,spring,height-spring+.157);
+    for(let i=1;i<opening.length;i++){
+      const inset=(point,other)=>[THREE.MathUtils.lerp(point[0],other[0],.020),
+        THREE.MathUtils.lerp(point[1],other[1],.020)];
+      const a=opening[i-1],b=opening[i];
+      const c=outside[i-1],d=outside[i];
+      solidProfile(jamb,[inset(a,b),inset(b,a),inset(d,c),inset(c,d)],-.186,.356,
+        matte('stone',i%4===0?4:2+i%3));
+    }
+    for(const side of [-1,1]){
+      for(let tier=0;tier<4;tier++){
+        const h=spring/4;
+        block(jamb,side*(half+.063),h*(tier+.5),-.002,.175+(tier%2)*.018,h-.012,.356,
+          matte('stone',tier+2),true,.51);
+      }
+    }
+
+    const leafHalf=half-.055;
+    const leafRise=height-spring-.046;
+    const hinge=group(door,-leafHalf,0,.071);
+    const leaf=group(hinge,leafHalf);
+    const outline=[[-leafHalf,.018],[leafHalf,.018],...archProfile(leafHalf,spring,leafRise).reverse()];
+    solidProfile(leaf,outline,-.067,.117,matte('darkwood',2));
+    const top=x=>spring+leafRise*Math.sqrt(Math.max(0,1-(x/leafHalf)**2));
+    const plankWidth=leafHalf*2/7;
+    for(let i=0;i<7;i++){
+      const x0=-leafHalf+i*plankWidth+.008;
+      const x1=x0+plankWidth-.016;
+      const plank=[[x0,.037],[x1,.037]];
+      for(let step=4;step>=0;step--){
+        const x=x0+(x1-x0)*step/4;
+        plank.push([x,top(x)-.023]);
+      }
+      solidProfile(leaf,plank,.047,.041,matte(i===3?'salvaged':'oak',i+1));
+    }
+    const iron=matte('iron',2);
+    for(const y of [.42,1.29]){
+      block(leaf,-.026,y,.104,1.38,.104,.054,matte('darkwood',1),true,.43);
+      block(leaf,-.514,y,.144,.319,.063,.035,iron,true,.31);
+      for(const x of [-.619,-.440,-.186,.19,.59]){
+        block(leaf,x,y,.145,.039,.043,.029,iron,true);
+      }
+    }
+    block(leaf,.488,1.056,.115,.114,.153,.06,iron,true);
+    const pull=new THREE.Mesh(new THREE.TorusGeometry(.053,.014,6,10),iron);
+    pull.position.set(.49,1.024,.172);
+    pull.castShadow=true;
+    leaf.add(pull);
+    block(leaf,.49,1.056,-.082,.153,.046,.050,iron,true);
+    const target={name:'打开北门',kind:'north-door',point:V(x,1.37,-4.71),radius:1.0};
+    interactive.push(target);
+    northDoor={hinge,opened:false,target};
   }
 
   function fireTexture(size){
@@ -1938,7 +2054,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return mesh;
   }
 
-  function hewnBoard(parent,x,y,z,w,h,d,mat){
+  function hewnBoard(parent,x,y,z,w,h,d,mat,wholeSlab=false){
     const outline=[
       [-w*.50,-d*.39],[-w*.44,-d*.51],[w*.415,-d*.50],[w*.49,-d*.39],
       [w*.51,d*.34],[w*.431,d*.485],[-w*.42,d*.505],[-w*.52,d*.36]
@@ -1954,7 +2070,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     function tri(a,b,c,edge=false){
       for(const p of [a,b,c]){
         positions.push(...p);
-        uvs.push(p[0]/tile,.5+(edge?p[2]+p[1]:p[2])/tile);
+        if(wholeSlab)uvs.push(.5+.9*p[0]/w,.5+.82*(p[2]+(edge?p[1]*.65:0))/d);
+        else uvs.push(p[0]/tile,.5+(edge?p[2]+p[1]:p[2])/tile);
       }
     }
     for(let i=0;i<outline.length;i++){
@@ -1984,7 +2101,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return g;
   }
 
-  function bottle(parent,x,y,z,s=1,kind='glass'){
+  function bottle(parent,x,y,z,s=1,kind='glass',bodyMaterial=matte(kind,3)){
     const g=group(parent,x,y,z,kind==='glass'?.16:-.27);
     g.scale.setScalar(s);
     const body=kind==='glass'
@@ -1992,7 +2109,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         [.329,.035,.032],[.387,.031,.029],[.401,.035,.032]]
       : [[0,.063,.060],[.026,.078,.071],[.111,.091,.082],[.228,.087,.077],
         [.276,.065,.060],[.298,.045,.039],[.365,.043,.039],[.383,.051,.046]];
-    loft(g,body,kind==='glass'?8:9,matte(kind,3),.002,.16);
+    loft(g,body,kind==='glass'?8:9,bodyMaterial,.002,.16);
     loft(g,[[body.at(-1)[0]-.005,.027,.025],[body.at(-1)[0]+.024,.025,.023]],7,
       matte('salvaged',1),.0015);
     return g;
@@ -2007,22 +2124,56 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     loft(g,[[.359,.062,.062,-.022],[.376,.061,.057,-.022]],8,matte('strap',0),.0015,.17);
   }
 
-  function woodenTable(x,z,w,d,ang,runner=false){
+  function slabGrain(seed){
+    const image=canvas(128,64),draw=image.getContext('2d'),rng=random(seed);
+    const base=choose([[148,101,63],[148,108,69],[136,93,57]],rng);
+    const knotX=26+rng()*70,knotY=17+rng()*30;
+    for(let y=0;y<image.height;y++){
+      for(let x=0;x<image.width;x++){
+        const knot=Math.hypot((x-knotX)*.35,(y-knotY)*.95);
+        const swell=Math.exp(-knot/19)*Math.sin(knot*.54)*1.62;
+        const fiber=y+1.44*Math.sin(x*.032+y*.15)+.58*Math.sin(x*.082-y*.21)+swell;
+        const lines=3.8*Math.sin(fiber*2.16)+4.9*Math.sin(fiber*.56);
+        const ripple=4.1*Math.sin(x*.058+y*.073)+(rng()-.5)*4.0;
+        const edge=Math.min(1,Math.min(y,image.height-y-1)/7);
+        const variation=Math.round((lines+ripple-(1-edge)*12)/2)*2;
+        draw.fillStyle='rgb('+base.map(value=>value+variation).join(',')+')';
+        draw.fillRect(x,y,1,1);
+      }
+    }
+    const map=texture(image);
+    map.minFilter=THREE.LinearMipmapLinearFilter;
+    return pixelLit(new THREE.MeshStandardMaterial({map,roughness:.92}));
+  }
+
+  function servingTable({x,z,width,depth,turn,wood,seats}){
+    const table=woodenTable(x,z,width,depth,turn,wood);
+    for(const [seatX,seatZ,seatTurn] of seats){
+      const seat=table.localToWorld(V(seatX,0,seatZ));
+      stool(seat.x,seat.z,turn+seatTurn);
+    }
+  }
+
+  function woodenTable(x,z,w,d,ang,slabSeed){
     const g=group(scene,x,0,z,ang);
     const h=.79;
-    const faces=[
-      { width:1.010, thickness:.104, depth:.29, offset:-.012, level:.003 },
-      { width:.983, thickness:.121, depth:.20, offset:.018, level:-.007 },
-      { width:1.024, thickness:.110, depth:.32, offset:.008, level:.004 },
-      { width:.973, thickness:.095, depth:.19, offset:-.014, level:-.010 }
-    ];
-    let edge=-d/2;
-    for(const [i,board] of faces.entries()){
-      const span=board.depth*d;
-      const face=hewnBoard(g,board.offset,h+board.level,edge+span/2,board.width*w,
-        board.thickness,span-.013,matte(i===1?'salvaged':'weathered',i+1));
-      face.rotation.z=i%2?.012:-.008;
-      edge+=span;
+    if(slabSeed!==undefined){
+      hewnBoard(g,0,h,0,w,.136,d,slabGrain(slabSeed),true);
+    }else{
+      const faces=[
+        { width:1.010, thickness:.104, depth:.29, offset:-.012, level:.003 },
+        { width:.983, thickness:.121, depth:.20, offset:.018, level:-.007 },
+        { width:1.024, thickness:.110, depth:.32, offset:.008, level:.004 },
+        { width:.973, thickness:.095, depth:.19, offset:-.014, level:-.010 }
+      ];
+      let edge=-d/2;
+      for(const [i,board] of faces.entries()){
+        const span=board.depth*d;
+        const face=hewnBoard(g,board.offset,h+board.level,edge+span/2,board.width*w,
+          board.thickness,span-.013,matte(i===1?'salvaged':'weathered',i+1));
+        face.rotation.z=i%2?.012:-.008;
+        edge+=span;
+      }
     }
     for(const xx of [-1,1]) for(const zz of [-1,1]){
       const legX=xx*(w*.5-.131)+(zz<0?.018:-.014);
@@ -2041,16 +2192,6 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     block(g,-.021,.624,-d/2+.091,w-.159,.113,.071,matte('salvaged',2),true,.50,.012);
     block(g,-.026,.612,d/2-.107,w-.171,.143,.081,matte('weathered',3),true,.44,-.024);
     block(g,.015,.245,d/2-.144,w-.265,.068,.069,matte('salvaged',0),true,.50,-.016);
-    if(runner){
-      const cloth=matte('rag',0);
-      block(g,.13,h+.063,-.031,.441,.021,d-.020,cloth,true,.41);
-      block(g,.092,h+.076,.145,.219,.012,.243,matte('rag',3),true,.26);
-      block(g,.24,h+.075,-.071,.032,.009,d-.135,matte('strap',0),false,.33);
-      block(g,.147,h-.018,d*.50+.005,.408,.145,.024,cloth,true,.38,-.028);
-      for(const [x1,length] of [[-.032,.048],[.022,.071],[.081,.036],[.139,.051],[.225,.055],[.292,.032]]){
-        block(g,x1,h-.080-length/2,d*.50+.007,.038,length,.023,cloth,false);
-      }
-    }
     collider(g,.009,0,w*1.024+.018,d+.024);
     return g;
   }
@@ -2177,43 +2318,94 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return light;
   }
 
-  function backBarShelves(){
-    const rack=group(scene,5.55,0,-.82,-Math.PI/2);
-    const shelfWidth=4.84;
-    const levels=[.24,.95,1.56,2.14];
-    for(const x of [-2.4,-.82,.82,2.4]){
-      block(rack,x,1.13,.03,.095,2.26,.454,matte('darkwood',3),true,.49);
+  function stockedCup(parent,material,handle){
+    const profile=[[0,0],[.048,0],[.064,.019],[.072,.139],[.071,.153],[.056,.153],
+      [.053,.035],[0,.032]].map(([r,y])=>new THREE.Vector2(r,y));
+    parent.add(new THREE.Mesh(new THREE.LatheGeometry(profile,9),material));
+    if(handle){
+      const grip=new THREE.Mesh(new THREE.TorusGeometry(.037,.011,5,9),material);
+      grip.position.set(.070,.087,0);
+      grip.scale.y=1.21;
+      parent.add(grip);
     }
-    for(const [index,y] of levels.entries()){
-      block(rack,0,y,0,shelfWidth,.086,.442,matte('oak',index+2),true,.54);
-      block(rack,0,y-.052,.208,shelfWidth,.038,.071,matte('oak',index+4),true,.43);
-    }
+  }
 
-    barrel(rack,-1.89,.287,-.021,.75,2);
-    barrel(rack,-1.37,.287,-.012,.62,4);
-    satchel(rack,-.37,.288,-.032,.91);
-    satchel(rack,.04,.288,-.048,.73);
-    barrel(rack,1.19,.286,-.018,.76,1);
-    barrel(rack,1.75,.286,-.022,.76,3);
-
-    const bottles=[
-      [-2.20,1.00,.15,.86,'clay'],[-1.99,1.00,.03,1.07,'glass'],
-      [-1.72,1.00,.05,1.03,'clay'],[-.36,1.00,.10,.77,'clay'],
-      [.18,1.00,.045,.94,'clay'],[1.18,1.00,.095,1.11,'clay'],
-      [1.76,1.00,.02,.88,'glass'],[-1.76,1.61,.08,.78,'clay'],
-      [.39,1.61,.015,.85,'clay'],
-      [1.65,1.61,.032,.77,'clay']
+  function fillBackBar(rack,levels,bayWidth,bays){
+    const glass=(color)=>pixelLit(new THREE.MeshStandardMaterial({color,roughness:.45,metalness:.04}));
+    const green=glass(0x546543),amber=glass(0x8b5a36),blue=glass(0x467073);
+    const cream=matte('wax',1),stoneware=matte('clay',3);
+    const shapes=[
+      parent=>bottle(parent,0,0,0,1,'glass',green),
+      parent=>bottle(parent,0,0,0,1,'glass',amber),
+      parent=>bottle(parent,0,0,0,.91,'glass',blue),
+      parent=>bottle(parent,0,0,0,.94,'clay'),
+      parent=>stockedCup(parent,cream,true),
+      parent=>stockedCup(parent,stoneware,true),
+      parent=>stockedCup(parent,blue,false)
     ];
-    for(const args of bottles)bottle(rack,...args);
-    for(const x of [-1.27,-.43,1.17]){
-      for(let layer=0;layer<3;layer++){
-        block(rack,x+.015*layer,1.63+layer*.036,.05,.235-.013*layer,.033,.193,
-          matte('clay',layer+1),true,.26);
+    const rng=random(1282);
+    const stock=shapes.map(()=>[]);
+    const rotation=new THREE.Quaternion();
+    for(const [row,y] of levels.entries()){
+      for(let bay=0;bay<bays;bay++){
+        const mid=(bay-(bays-1)/2)*bayWidth;
+        for(let depth=0;depth<2;depth++){
+          const count=depth===0?7:6;
+          const cups=depth===1&&(row===0||row===2||(row===3&&bay%3===1));
+          for(let i=0;i<count;i++){
+            const type=cups?choose([4,4,5,6],rng):choose([0,0,1,1,2,3],rng);
+            const x=mid+(i-(count-1)/2)*(cups?.221:.197)+(rng()-.5)*.017;
+            const z=(depth===0?-.142:.098)+(rng()-.5)*.022;
+            const scale=.91+rng()*.20;
+            rotation.setFromAxisAngle(V(0,1,0),cups?-.32+rng()*.43:(rng()-.5)*.51);
+            stock[type].push(new THREE.Matrix4().compose(V(x,y+.050,z),rotation,V(scale,scale,scale)));
+          }
+        }
       }
     }
-    satchel(rack,-1.43,2.187,-.056,.69);
-    satchel(rack,.38,2.187,-.056,.66);
-    collider(rack,0,0,shelfWidth,.46);
+    for(const [i,make] of shapes.entries()){
+      if(!stock[i].length)continue;
+      // Keep hundreds of shelf items in a small number of draw calls.
+      const mold=new THREE.Group();
+      make(mold);
+      mold.updateMatrixWorld(true);
+      const matrix=new THREE.Matrix4();
+      mold.traverse(part=>{
+        if(!part.isMesh)return;
+        const instances=new THREE.InstancedMesh(part.geometry,part.material,stock[i].length);
+        for(const [j,placement] of stock[i].entries()){
+          instances.setMatrixAt(j,matrix.multiplyMatrices(placement,part.matrixWorld));
+        }
+        instances.receiveShadow=part.receiveShadow;
+        rack.add(instances);
+      });
+    }
+  }
+
+  function backBarShelves(){
+    const rack=group(scene,5.50,0,0,-Math.PI/2);
+    const shelfWidth=9.34,bays=6,bayWidth=shelfWidth/bays;
+    const levels=[.24,.83,1.43,2.02,2.61];
+    const frame=matte('darkwood',3);
+    block(rack,0,1.66,-.252,shelfWidth,2.96,.056,matte('darkwood',5),false,.65);
+    block(rack,0,.166,.012,shelfWidth,.19,.49,frame,true,.56);
+    for(let i=0;i<=bays;i++){
+      const x=-shelfWidth/2+i*bayWidth;
+      block(rack,x,1.696,.025,.099,3.060,.536,frame,true,.52);
+    }
+    for(const [index,y] of levels.entries()){
+      block(rack,0,y,0,shelfWidth,.097,.536,matte('oak',index+2),true,.65);
+      block(rack,0,y-.057,.252,shelfWidth,.049,.058,matte('oak',index+3),true,.53);
+    }
+    block(rack,0,3.22,.035,shelfWidth,.112,.595,frame,true,.56);
+    block(rack,0,3.156,.302,shelfWidth,.043,.045,matte('oak',2),true,.57);
+    fillBackBar(rack,levels,bayWidth,bays);
+    for(const z of [-2.46,2.37]){
+      const spill=new THREE.PointLight(0xffc48b,5.6,4.1,2);
+      spill.position.set(4.54,2.78,z);
+      scene.add(spill);
+    }
+    collider(rack,0,0,shelfWidth,.54);
   }
 
   function counter(){
@@ -2580,15 +2772,14 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   backKitchen();
   const fireplace=hearth();
   shelves();
-  woodenTable(-2.17,.22,1.72,.99,-.081,true);
-  stool(-2.91,1.06,.21);
-  stool(-1.93,1.16,-.08);
-  stool(-1.08,.67,.22);
-  stool(-2.14,-.81,-.12);
-  woodenTable(-.24,-2.78,1.34,.81,.071);
-  stool(-.87,-2.11,.17);
-  stool(.56,-2.57,.091);
-  stool(-4.11,-2.81,.10);
+  for(const table of [
+    {x:-2.70,z:-.22,width:2.36,depth:1.34,turn:-.055,wood:1071,
+      seats:[[-.63,-1.02,.16],[.64,-1.03,-.11],[-.65,1.04,.09],[.62,1.03,-.13]]},
+    {x:-.66,z:-2.83,width:2.14,depth:1.18,turn:.035,wood:3629,
+      seats:[[-.57,-.93,.05],[.53,-.93,-.10],[-.58,.95,.14],[.51,.94,-.11]]},
+    {x:-3.49,z:2.64,width:2.31,depth:1.27,turn:.038,wood:6071,
+      seats:[[-.64,-.99,.12],[.58,-.99,-.16],[-.66,.98,-.08],[.56,1.00,.11]]}
+  ])servingTable(table);
   backBarShelves();
   const {g,c}=counter();
   shopkeeper(g);
@@ -2778,10 +2969,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       }
       if(item?.kind==='curtain'){
         if(curtain.opened&&Math.abs(eye.z-kitchenDoorway.z)<.45){
-          caption('走过门槛，再放下门帘。');
+          caption('走过门槛，再合上门帘。');
         }else{
           curtain.opened=!curtain.opened;
-          item.name=curtain.opened?'放下后厨门帘':'掀开后厨门帘';
+          item.name=curtain.opened?'合拢后厨门帘':'拨开后厨门帘';
         }
       }
       if(item?.kind==='street')caption('再往前是西城旧居民街。');
@@ -2818,7 +3009,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     northDoor.hinge.rotation.y+=(openAngle-northDoor.hinge.rotation.y)*transition;
     curtain.amount+=(openCurtain-curtain.amount)*transition;
     for(const {side,panel} of curtain.panels){
-      panel.position.x=side*(.379+.286*curtain.amount);
+      panel.position.x=side*(.382+.275*curtain.amount);
       panel.scale.x=1-.756*curtain.amount;
     }
     if(sailor.riding){
