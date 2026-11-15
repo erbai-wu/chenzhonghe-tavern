@@ -19,6 +19,8 @@ button:hover,button:focus-visible{background:#60432a;outline:1px solid #edbc74;o
 #talk{position:absolute;bottom:7%;left:50%;transform:translateX(-50%);width:min(580px,calc(100% - 40px));color:var(--paper);background:#20170eee;border:1px solid #987a50;border-top:2px solid #c2a278;padding:18px 20px;box-shadow:0 9px 40px #100c08a0}
 #talk h2{margin:0 0 7px;font-size:22px;letter-spacing:.10em;font-weight:400}#talk p{margin:0 0 14px;line-height:1.65}#talk .choices{display:flex;gap:10px;flex-wrap:wrap}
 #talk button{padding:7px 11px;font-size:14px}
+#talk{width:min(640px,calc(100% - 32px));max-height:82dvh;overflow:auto}
+#talk #roll-result{padding-left:10px;border-left:2px solid #967a52;color:#d8c49c}
 #map-dialog{position:absolute;inset:0;z-index:4;display:grid;place-items:center;padding:14px;background:#0d100eea}
 #map-body{width:min(1080px,95vw,calc((100dvh - 60px)*1.565));max-height:96vh;display:grid;gap:7px}
 #map-sheet{position:static!important;display:block;width:100%!important;height:auto!important;image-rendering:auto;box-shadow:0 10px 42px #0008}
@@ -29,7 +31,17 @@ button:hover,button:focus-visible{background:#60432a;outline:1px solid #edbc74;o
 <main id="game">
 <section id="welcome" aria-label="开始游戏"><h1>沉钟河 · 地下酒馆</h1><button id="start">进入酒馆</button><p>WASD 走动　鼠标转向　E 交互　M 地图　Esc 释放鼠标</p></section>
 <span id="reticle" hidden></span><p id="interaction" hidden></p><p id="status" role="status"></p>
-<section id="talk" hidden role="dialog" aria-label="与店主托伦交谈"><h2>托伦</h2><p id="dialogue" aria-live="polite"></p><div class="choices"><button id="check">打听检修道 · 魅力检定</button><button id="leave">结束交谈</button></div></section>
+<section id="talk" hidden role="dialog" aria-labelledby="speaker">
+  <h2 id="speaker">托伦</h2>
+  <p id="dialogue" aria-live="polite"></p>
+  <p id="roll-result" hidden aria-live="polite"></p>
+  <div class="choices">
+    <button id="topic-worker">今晚的排水工</button><button id="topic-road">灰脊旧商道</button>
+    <button id="topic-river">河道和水位</button><button id="topic-stock">架上的酒和后厨</button>
+    <button id="topic-report" hidden>说说刚才看到的</button><button id="check" hidden></button>
+    <button id="leave">结束交谈</button>
+  </div>
+</section>
 <section id="map-dialog" hidden role="dialog" aria-modal="true" aria-label="地下水路地图">
   <div id="map-body"><canvas id="map-sheet" role="img" aria-label="地下酒馆、排水干渠与两岸走道的平面及高程图"></canvas><button id="map-close">关闭地图 · M / Esc</button></div>
 </section>
@@ -240,10 +252,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const beige=solid(0x6e5740);
   const collisions=[];
   const interactive=[];
+  const observations={dock:false,waterMark:false,outfall:false};
   // Positive X is east and negative Z is north.
   const northDoorway={x:2.91,z:-4.80,half:.78,spring:1.58,height:2.34};
   const kitchenDoorway={x:.57,z:4.80,half:.76};
-  const kitchenRoom={x:.66,z:6.74,halfWidth:2.335};
+  const kitchenRoom={x:.62,z:8.15,halfWidth:3.40,halfDepth:3.30,height:3.14};
   const hallPavingDepth=9.7;
   const stairStart=-7.16;
   const tread=.32;
@@ -1367,7 +1380,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     key.add(bow);
     block(key,.16,0,0,.20,.037,.033,brass,false);
     block(key,.215,0,.03,.065,.037,.074,brass,false);
-    interactive.push({name:'取清渠班值守钥匙',kind:'service-key',point:V(serviceGate.x-.73,tunnelFloor+.95,-49.43),radius:.56,object:key});
+    interactive.push({name:'拿取检修门钥匙',kind:'service-key',point:V(serviceGate.x-.73,tunnelFloor+.95,-49.43),radius:.56,object:key});
     tunnelLantern(parent,serviceGate.x+.75,tunnelFloor+1.65,-49.05);
     canalScenery(parent,mats);
     riverScenery(parent,mats);
@@ -1397,10 +1410,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         item.object.visible=false;
         item.disabled=true;
         underground.service.target.name='打开排水检修门';
-        caption('取得清渠班值守钥匙。');
+        caption('拿到了检修门钥匙。');
         break;
       case 'service-gate':
-        if(!underground.key)caption('检修门锁着。清渠班留下的值守钥匙放在门边木架上。');
+        if(!underground.key)caption('检修门锁着。值班的排水工把钥匙放在了门边木架上。');
         else if(!underground.service.opened){
           underground.service.opened=true;
           item.name='查看排水检修门';
@@ -1408,13 +1421,19 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         }else caption('门锁已经打开。');
         break;
       case 'dock':
+        observations.dock=true;
         caption('石台高出平水面约一米。沿两岸可步行，靠近系泊的小船可按 E 登船。');
         break;
       case 'water-mark':
+        observations.waterMark=true;
         caption('红线是高水警戒线。水涨到这里就要封住河道支路。');
         break;
       case 'outfall':
+        observations.outfall=true;
         caption('城内排水干渠沿坡度向东汇入地下河。检修步道高出渠面。');
+        break;
+      case 'kitchen-wine':
+        caption('缸里是石犬岭的浆果酒。酒面深红，闻着有浆果发酵后的酸甜味。');
         break;
     }
   }
@@ -1651,66 +1670,232 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     label('高水警戒线',1265,843,16,'#8b5346');
   }
 
-  function backKitchen(){
-    const kitchen=group(scene,kitchenRoom.x,0,kitchenRoom.z);
-    pavingBed(kitchen,0,4.67,3.85,.18);
-    stonePaving(kitchen,4.67,hallPavingDepth/2-kitchenRoom.z,1.925,631);
-    block(kitchen,0,2.79,0,4.69,.22,3.94,matte('darkwood',2),false,.41);
-    block(kitchen,0,1.40,1.948,4.69,2.80,.19,dark,false);
-    fieldWall(kitchen,0,0,1.847,4.67,2.80,Math.PI,512);
+  function pantryCrate(parent,x,y,z,w,d){
+    const box=group(parent,x,y,z);
+    const board=matte('weathered',2);
+    block(box,0,.030,0,w,.051,d,board,false,.48);
     for(const side of [-1,1]){
-      block(kitchen,side*2.37,1.4,0,.19,2.8,3.90,dark,false);
-      fieldWall(kitchen,side*2.267,0,0,3.88,2.80,-side*Math.PI/2,521+side);
+      block(box,side*(w/2-.021),.076,0,.042,.112,d,board,false,.43);
+      block(box,0,.083,side*(d/2-.020),w,.122,.040,board,true,.43);
     }
-    for(const z of [-1.59,-.22,1.24]){
-      block(kitchen,0,2.54,z,4.66,.28,.20,matte('oak',4),true,.52);
-    }
-    const prep=woodenTable(kitchenRoom.x+.75,7.63,1.81,.78,0);
-    block(prep,-.14,.854,.07,.54,.03,.348,matte('oak',4),true,.43);
-    block(prep,-.27,.878,.10,.24,.045,.15,matte('bread',1),true);
-    for(const [x,z,scale] of [[.61,.12,.82],[.45,-.07,.71]]){
-      bottle(prep,x,.844,z,scale,'clay');
-    }
-    const pot=group(prep,.265,.845,.015);
-    const body=new THREE.Mesh(new THREE.CylinderGeometry(.134,.116,.185,8),matte('iron',1));
-    body.position.y=.1;
-    body.castShadow=body.receiveShadow=true;
-    pot.add(body);
-    body.add(new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry,40),ink));
-    const lid=new THREE.Mesh(new THREE.CylinderGeometry(.135,.135,.031,8),matte('iron',3));
-    lid.position.y=.199;
-    lid.castShadow=lid.receiveShadow=true;
-    pot.add(lid);
-    lid.add(new THREE.LineSegments(new THREE.EdgesGeometry(lid.geometry,40),ink));
-    block(pot,0,.23,0,.062,.04,.043,matte('ash',1),true);
+    return box;
+  }
 
-    barrel(kitchen,1.78,0,-1.27,1.09,4);
-    collider(kitchen,1.78,-1.27,.73,.73);
+  function pantryStock(cabinet){
+    const rng=random(5561);
+    const onion=solid(0xc0965b),turnip=solid(0xbca97c),apple=solid(0x874735);
+    const carrot=solid(0xac642b),stems=solid(0x586339),mushroom=solid(0x665744);
+    for(const [x,y,w,kind] of [[-1.28,.72,.87,'carrot'],[-.29,.72,.86,'turnip'],
+      [.77,.72,1.00,'onion'],[-1.28,1.30,.87,'apple'],[-.29,1.30,.86,'mushroom']]){
+      const box=pantryCrate(cabinet,x,y,.066,w,.41);
+      for(let row=0;row<2;row++){
+        for(let i=0;i<5;i++){
+          const px=(i-2)*w*.158+(rng()-.5)*.034;
+          const pz=(row-.5)*.15+(rng()-.5)*.028;
+          const root=group(box,px,.117+(rng()-.5)*.025,pz,(rng()-.5)*.7);
+          if(kind==='carrot'){
+            const body=new THREE.Mesh(new THREE.ConeGeometry(.039,.175,6),carrot);
+            body.rotation.x=Math.PI*.56;
+            root.add(body);
+            block(root,0,.011,-.095,.018,.029,.055,stems,false);
+          }else if(kind==='mushroom'){
+            loft(root,[[0,.014,.014],[.041,.016,.017]],6,turnip,0);
+            loft(root,[[.036,.048,.048],[.055,.057,.054],[.076,.031,.029]],7,mushroom,0);
+          }else{
+            const texture=kind==='apple'?apple:kind==='onion'?onion:turnip;
+            const vegetable=new THREE.Mesh(new THREE.IcosahedronGeometry(.050+rng()*.014,0),texture);
+            vegetable.scale.y=kind==='turnip'?1.15:.88;
+            vegetable.castShadow=true;
+            root.add(vegetable);
+            block(root,0,.052,0,.014,.030,.014,kind==='onion'?matte('salvaged',1):stems,false);
+          }
+        }
+      }
+    }
 
-    const cookstove=group(kitchen,-1.82,0,1.36,Math.PI/2);
-    block(cookstove,0,.17,0,.94,.34,.70,matte('hearth',3),true,.42);
-    block(cookstove,0,.47,-.265,.94,.27,.17,matte('hearth',4),true,.42);
-    for(const x of [-.365,.365]){
-      block(cookstove,x,.47,.064,.218,.27,.55,matte('hearth',2),true,.37);
+    for(const [x,z,rotation] of [[.38,.05,-.06],[.68,.08,.17],[1.03,.04,-.12],[1.31,.08,.13]]){
+      const loaf=group(cabinet,x,1.31,z,rotation);
+      loft(loaf,[[0,.112,.092],[.034,.143,.115],[.104,.125,.094],[.148,.084,.070]],
+        9,matte('bread',rotation>0?2:4),.0015);
+      for(let i=0;i<2;i++){
+        block(loaf,-.040+i*.075,.146,-.016,.045,.009,.105,matte('bread',5),false,.35,.10);
+      }
     }
-    block(cookstove,0,.593,.084,.88,.089,.60,matte('iron',1),true,.40);
-    block(cookstove,0,.36,-.025,.506,.073,.49,char,true,.24);
-    block(cookstove,0,.803,-.19,.376,.394,.296,matte('hearth',1),true,.35);
-    block(cookstove,0,1.634,-.21,.248,1.28,.243,matte('stone',3),false,.48);
-    collider(cookstove,0,0,.95,.72);
-    satchel(kitchen,-1.84,0,-.43,1.27);
-    collider(kitchen,-1.84,-.43,.49,.46);
-    const storage=group(kitchen,-2.14,0,.46,Math.PI/2);
-    block(storage,0,1.30,0,1.57,.093,.39,matte('oak',3),true,.41);
-    block(storage,0,1.86,0,1.57,.088,.39,matte('oak',2),true,.46);
-    for(const x of [-.68,.68]){
-      block(storage,x,1.04,-.032,.082,2.07,.086,matte('oak',3),true,.40);
+    for(const x of [-1.35,-1.00,-.62]){
+      const jar=bottle(cabinet,x,1.90,.008,.89,'clay');
+      jar.scale.y*=.92;
     }
-    bottle(storage,-.42,1.347,0,.96,'clay');
-    bottle(storage,-.15,1.347,.03,1.13,'clay');
-    bottle(storage,.24,1.347,.06,.82,'glass');
-    satchel(storage,.45,1.904,-.035,.62);
-    collider(storage,0,0,1.57,.41);
+    for(const [x,scale] of [[-.17,.81],[.36,.98],[.93,1.07],[1.41,.85]]){
+      const sack=group(cabinet,x,1.90,.015);
+      sack.scale.setScalar(scale);
+      loft(sack,[[0,.167,.118],[.046,.189,.129],[.211,.155,.115],
+        [.266,.072,.061],[.305,.083,.068]],8,matte('canvas',3),.0014);
+      loft(sack,[[.263,.076,.064],[.282,.075,.065]],8,matte('strap',1),.001);
+    }
+  }
+
+  function kitchenCabinet(kitchen){
+    const unit=group(kitchen,-kitchenRoom.halfWidth+.39,0,.14,Math.PI/2);
+    const width=3.67;
+    const oak=matte('weathered',1),frame=matte('darkwood',3);
+    block(unit,0,1.16,-.256,width,2.26,.087,frame,false,.64);
+    for(const x of [-1.79,-.58,.57,1.79]){
+      block(unit,x,1.17,.018,.099,2.29,.60,frame,true,.64);
+    }
+    for(const y of [.165,.670,1.250,1.848,2.306]){
+      block(unit,0,y,.034,width,.094,.63,oak,true,.61);
+    }
+    for(const x of [-1.21,0,1.20]){
+      block(unit,x,.406,.343,1.057,.42,.078,matte('weathered',4),true,.61);
+      block(unit,x,.408,.402,.119,.038,.041,matte('iron',4),true);
+    }
+    pantryStock(unit);
+    collider(unit,0,.040,width,.67);
+  }
+
+  function kitchenWineJar(kitchen){
+    const jar=group(kitchen,2.38,0,.99,.11);
+    const clay=matte('clay',3);
+    const profile=[[0,0],[.30,0],[.367,.084],[.504,.214],[.604,.426],[.604,.698],
+      [.553,.887],[.502,1.003],[.518,1.083],[.508,1.133],[.466,1.133],
+      [.447,1.078],[.452,1.008],[.496,.893],[.526,.704],[.511,.333],[.32,.126],[0,.126]]
+      .map(([r,y])=>new THREE.Vector2(r,y));
+    const vessel=new THREE.Mesh(new THREE.LatheGeometry(profile,18),clay);
+    clay.map.wrapS=clay.map.wrapT=THREE.RepeatWrapping;
+    vessel.castShadow=vessel.receiveShadow=true;
+    jar.add(vessel);
+    const wine=canvas(60,60),draw=wine.getContext('2d'),rng=random(3311);
+    for(let y=0;y<60;y++){
+      for(let x=0;x<60;x++){
+        const edge=Math.min(1,Math.hypot(x-30,y-30)/31);
+        const ripple=4*Math.sin(x*.28+y*.19+Math.sin(y*.19))+(rng()-.5)*7;
+        draw.fillStyle='rgb('+Math.round(126-44*edge+ripple)+','+Math.round(20-11*edge+ripple*.4)+
+          ','+Math.round(29-13*edge+ripple*.6)+')';
+        draw.fillRect(x,y,1,1);
+      }
+    }
+    const liquid=new THREE.Mesh(new THREE.CircleGeometry(.461,24),
+      new THREE.MeshStandardMaterial({map:texture(wine),color:0xfba6aa,roughness:.56,
+        emissive:0x600711,emissiveIntensity:.26}));
+    liquid.rotation.x=-Math.PI/2;
+    liquid.position.y=1.016;
+    jar.add(liquid);
+    for(const [y,r] of [[.32,.571],[.89,.532],[1.097,.509]]){
+      const band=new THREE.Mesh(new THREE.TorusGeometry(r,.014,6,18),matte('clay',2));
+      band.rotation.x=Math.PI/2;
+      band.position.y=y;
+      jar.add(band);
+    }
+    const lid=new THREE.Mesh(new THREE.CylinderGeometry(.512,.517,.078,14),matte('weathered',2));
+    lid.position.set(.363,.524,.778);
+    lid.rotation.set(1.31,.19,.02);
+    lid.castShadow=true;
+    jar.add(lid);
+    block(jar,.40,.572,.818,.20,.063,.080,matte('darkwood',2),true,.31,.15);
+    collider(jar,0,0,1.24,1.31);
+    jar.updateWorldMatrix(true,false);
+    interactive.push({name:'查看大酒缸',kind:'kitchen-wine',point:jar.localToWorld(V(0,1.035,0)),radius:.70,range:2.8});
+  }
+
+  function hangingMeats(kitchen){
+    const rack=group(kitchen,2.16,2.91,-.86);
+    block(rack,0,.026,0,.135,.17,2.45,matte('darkwood',2),true,.51);
+    const meat=pixelLit(new THREE.MeshStandardMaterial({color:0x8d503a,roughness:.98}));
+    const rind=solid(0xb07757),fat=solid(0xc6a884);
+    for(const [z,length,width,twist] of [[-.76,.67,.23,.31],[-.02,.54,.19,-.19],[.71,.72,.22,.47]]){
+      const joint=group(rack,0,-.28,z,twist);
+      const chain=matte('iron',3);
+      for(let link=0;link<3;link++){
+        const loop=new THREE.Mesh(new THREE.TorusGeometry(.035,.009,5,8),chain);
+        loop.position.y=.094-link*.062;
+        loop.rotation.y=link*Math.PI*.5;
+        joint.add(loop);
+      }
+      block(joint,0,.194,0,.019,.153,.019,chain,false);
+      const hook=new THREE.Mesh(new THREE.TorusGeometry(.064,.010,5,10,Math.PI*1.62),chain);
+      hook.rotation.z=-1.39;
+      hook.position.y=-.095;
+      joint.add(hook);
+      const cut=group(joint,.020,-.176,0,.15);
+      cut.rotation.z=.11+twist*.19;
+      loft(cut,[[-length,width*.27,width*.25],[-length*.92,width*.64,width*.38],
+        [-length*.73,width*.76,width*.49],[-length*.53,width*.71,width*.43],
+        [-length*.26,width*.43,width*.31],[-.073,width*.30,width*.21],[0,width*.19,width*.18]],8,meat,.0021,.25);
+      loft(cut,[[-length-.008,width*.23,width*.22],[-length+.019,width*.39,width*.29],
+        [-length+.048,width*.42,width*.30]],8,rind,.001,.25);
+      loft(cut,[[-.072,.037,.030],[.016,.028,.025],[.079,.041,.032],[.106,.047,.038]],7,fat,.001,.27);
+    }
+  }
+
+  function kitchenFurniture(kitchen){
+    kitchenCabinet(kitchen);
+    kitchenWineJar(kitchen);
+    hangingMeats(kitchen);
+    const prep=woodenTable(kitchenRoom.x+2.48,kitchenRoom.z-.95,2.29,.86,Math.PI/2,851);
+    block(prep,-.47,.878,.02,.65,.038,.50,matte('weathered',2),true,.45);
+    for(const [x,z,scale] of [[.57,.10,.83],[.87,-.08,.75]]){
+      bottle(prep,x,.861,z,scale,'clay');
+    }
+    const chopping=group(prep,-.46,.908,.03,-.29);
+    loft(chopping,[[0,.096,.062],[.038,.114,.074],[.088,.086,.058],[.115,.053,.037]],
+      8,matte('bread',2),.001,.22);
+    block(prep,-.15,.907,.010,.26,.022,.052,matte('iron',3),true,.40,-.05);
+    block(prep,.016,.918,.010,.12,.037,.051,matte('oak',1),true,.40);
+
+    const stove=group(kitchen,-2.34,0,2.13,Math.PI/2);
+    const stone=matte('hearth',3);
+    block(stove,0,.19,0,1.10,.38,.81,stone,true,.48);
+    for(const x of [-.428,.428]){
+      block(stove,x,.509,0,.24,.30,.74,stone,true,.50);
+    }
+    block(stove,0,.49,-.261,.72,.27,.22,stone,true,.48);
+    block(stove,0,.691,0,1.07,.14,.79,matte('iron',2),true,.47);
+    block(stove,0,1.080,-.265,.52,.71,.38,matte('stone',3),true,.46);
+    block(stove,0,2.12,-.265,.30,1.44,.26,matte('stone',3),true,.47);
+    sprite(stove,0,.47,.175,.421,.237,stoveFire,[0]);
+    const embers=new THREE.PointLight(0xffa06a,3.2,3.2,2);
+    embers.position.set(0,.48,.37);
+    stove.add(embers);
+    collider(stove,0,0,1.15,.88);
+    const rear=group(kitchen,-.29,0,2.79);
+    block(rear,0,.397,0,2.46,.794,.51,matte('darkwood',4),true,.56);
+    block(rear,0,.829,.017,2.58,.096,.58,matte('weathered',4),true,.57);
+    for(const x of [-.80,0,.80]){
+      block(rear,x,.428,-.265,.747,.614,.055,matte('weathered',2),true,.52);
+      block(rear,x+.248,.422,-.298,.036,.11,.031,matte('iron',3),true);
+    }
+    barrel(rear,-.70,.89,.006,.68,2);
+    satchel(rear,.02,.89,.016,.89);
+    bottle(rear,.58,.89,.015,.90,'clay');
+    collider(rear,0,0,2.60,.57);
+
+    const fill=new THREE.PointLight(0xffca85,16,7.2,2);
+    fill.position.set(.61,2.58,-.43);
+    kitchen.add(fill);
+    const jarLight=new THREE.PointLight(0xffcd9d,7.0,4.2,2);
+    jarLight.position.set(1.62,2.01,1.38);
+    kitchen.add(jarLight);
+  }
+
+  function backKitchen(){
+    const {x,z,halfWidth,halfDepth,height}=kitchenRoom;
+    const width=halfWidth*2,depth=halfDepth*2;
+    const kitchen=group(scene,x,0,z);
+    pavingBed(kitchen,0,width,depth,.18);
+    stonePaving(kitchen,width,hallPavingDepth/2-z,halfDepth,631);
+    block(kitchen,0,height+.091,0,width+.17,.18,depth+.18,matte('darkwood',2),false,.54);
+    block(kitchen,0,height/2,halfDepth+.091,width+.17,height,.182,dark,false);
+    fieldWall(kitchen,0,0,halfDepth-.005,width,height,Math.PI,512);
+    fieldWall(kitchen,0,0,-halfDepth+.159,width,height,0,543,
+      {x:kitchenDoorway.x-x,half:kitchenDoorway.half,height:2.27});
+    for(const side of [-1,1]){
+      block(kitchen,side*(halfWidth+.091),height/2,0,.182,height,depth+.17,dark,false);
+      fieldWall(kitchen,side*(halfWidth-.012),0,0,depth,height,-side*Math.PI/2,521+side);
+    }
+    for(const beamZ of [-2.67,-.89,.90,2.69]){
+      block(kitchen,0,height-.121,beamZ,width,.247,.207,matte('oak',4),true,.57);
+    }
+    kitchenFurniture(kitchen);
 
     const frame=group(scene,kitchenDoorway.x,0,4.66);
     block(frame,0,.026,-.086,1.57,.06,.53,matte('hearth',1),true,.36);
@@ -2225,7 +2410,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     collider(g,0,0,.49,.45);
   }
   function shelves(){
-    const g=group(scene,-5.52,0,-.36,Math.PI/2);
+    const g=group(scene,-2.15,0,-4.50);
     for(const x of [-.83,.83])block(g,x,1.62,0,.104,2.69,.52,matte('oak',2),true,.42);
     for(const y of [.106,.97,1.95,2.66]){
       block(g,0,y,0,1.83,.122,.58,matte('oak',Math.floor(y*3)),true,.57);
@@ -2239,14 +2424,14 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     bottle(g,-.15,2.726,.08,.84,'glass');
     for(let i=0;i<3;i++) block(g,.456,2.756+i*.046,.075,.37,.042,.22,matte('wax',1),true);
     collider(g,0,.04,1.82,.62);
-    const kindling=group(scene,-5.36,0,.91,Math.PI/2);
+    const kindling=group(scene,-5.38,0,-4.12,Math.PI/2);
     for(let i=0;i<4;i++){
       block(kindling,-.27+i*.15,.093+(i%2)*.066,0,.26,.166,.21,
         matte('ash',i),true,.36,-.093+i*.061);
     }
     collider(kindling,0,0,.74,.22);
-    barrel(scene,-5.35,0,1.61,.77,2);
-    collider(scene,-5.35,1.61,.5,.5);
+    barrel(scene,-4.45,0,-4.36,.77,2);
+    collider(scene,-4.45,-4.36,.5,.5);
   }
 
   function ledger(parent,x,y,z){
@@ -2318,94 +2503,161 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return light;
   }
 
-  function stockedCup(parent,material,handle){
-    const profile=[[0,0],[.048,0],[.064,.019],[.072,.139],[.071,.153],[.056,.153],
-      [.053,.035],[0,.032]].map(([r,y])=>new THREE.Vector2(r,y));
-    parent.add(new THREE.Mesh(new THREE.LatheGeometry(profile,9),material));
+  const tavernDrinks=[
+    {name:'南麦丘麦酒',color:0x987351,cork:0x725b3d,sides:8,
+      body:[[0,.073],[.029,.083],[.177,.083],[.239,.061],[.265,.038],[.327,.034],[.342,.039]]},
+    {name:'长枝林蜂蜜酒',color:0x8a652e,cork:0x9c7443,sides:8,
+      body:[[0,.047],[.027,.056],[.259,.055],[.325,.041],[.360,.025],[.444,.023],[.454,.030]]},
+    {name:'石犬岭浆果酒',color:0x74352c,cork:0x604a35,sides:9,
+      body:[[0,.058],[.035,.078],[.148,.096],[.231,.086],[.272,.043],[.327,.031],[.345,.037]]},
+    {name:'砧脊堡黑麦烧酒',color:0x4d5651,cork:0x77613e,sides:6,
+      body:[[0,.066],[.038,.072],[.258,.072],[.304,.051],[.337,.030],[.389,.028],[.401,.036]]}
+  ];
+
+  function stockedBottle(parent,drink){
+    const body=pixelLit(new THREE.MeshStandardMaterial({color:drink.color,roughness:.63}));
+    loft(parent,drink.body.map(([y,r])=>[y,r,r*.89]),drink.sides,body,.0016,.13);
+    const top=drink.body.at(-1)[0];
+    const cork=new THREE.Mesh(new THREE.CylinderGeometry(.022,.027,.034,7),solid(drink.cork));
+    cork.position.y=top+.013;
+    parent.add(cork);
+    const labelY=top*.40;
+    const radius=drink.body[2][1];
+    block(parent,0,labelY,radius*.875,.049,.046,.011,matte('paper',2),false);
+  }
+
+  function stockedCup(parent,{outer,inner,color,handle=false,bands=[]}){
+    const mat=pixelLit(new THREE.MeshStandardMaterial({color,roughness:.91}));
+    const profile=[...outer,...inner].map(([r,y])=>new THREE.Vector2(r,y));
+    parent.add(new THREE.Mesh(new THREE.LatheGeometry(profile,10),mat));
     if(handle){
-      const grip=new THREE.Mesh(new THREE.TorusGeometry(.037,.011,5,9),material);
-      grip.position.set(.070,.087,0);
-      grip.scale.y=1.21;
+      const grip=new THREE.Mesh(new THREE.TorusGeometry(.041,.010,5,10),mat);
+      grip.position.set(.080,.089,0);
+      grip.scale.y=1.24;
       parent.add(grip);
+    }
+    for(const [y,r] of bands){
+      const ring=new THREE.Mesh(new THREE.TorusGeometry(r,.004,5,12),matte('iron',3));
+      ring.rotation.x=Math.PI/2;
+      ring.position.y=y;
+      parent.add(ring);
     }
   }
 
-  function fillBackBar(rack,levels,bayWidth,bays){
-    const glass=(color)=>pixelLit(new THREE.MeshStandardMaterial({color,roughness:.45,metalness:.04}));
-    const green=glass(0x546543),amber=glass(0x8b5a36),blue=glass(0x467073);
-    const cream=matte('wax',1),stoneware=matte('clay',3);
-    const shapes=[
-      parent=>bottle(parent,0,0,0,1,'glass',green),
-      parent=>bottle(parent,0,0,0,1,'glass',amber),
-      parent=>bottle(parent,0,0,0,.91,'glass',blue),
-      parent=>bottle(parent,0,0,0,.94,'clay'),
-      parent=>stockedCup(parent,cream,true),
-      parent=>stockedCup(parent,stoneware,true),
-      parent=>stockedCup(parent,blue,false)
-    ];
-    const rng=random(1282);
-    const stock=shapes.map(()=>[]);
-    const rotation=new THREE.Quaternion();
-    for(const [row,y] of levels.entries()){
-      for(let bay=0;bay<bays;bay++){
-        const mid=(bay-(bays-1)/2)*bayWidth;
-        for(let depth=0;depth<2;depth++){
-          const count=depth===0?7:6;
-          const cups=depth===1&&(row===0||row===2||(row===3&&bay%3===1));
-          for(let i=0;i<count;i++){
-            const type=cups?choose([4,4,5,6],rng):choose([0,0,1,1,2,3],rng);
-            const x=mid+(i-(count-1)/2)*(cups?.221:.197)+(rng()-.5)*.017;
-            const z=(depth===0?-.142:.098)+(rng()-.5)*.022;
-            const scale=.91+rng()*.20;
-            rotation.setFromAxisAngle(V(0,1,0),cups?-.32+rng()*.43:(rng()-.5)*.51);
-            stock[type].push(new THREE.Matrix4().compose(V(x,y+.050,z),rotation,V(scale,scale,scale)));
-          }
-        }
+  const tavernCups=[
+    {name:'箍木杯',color:0x806347,handle:true,bands:[[.036,.070],[.115,.078]],
+      outer:[[0,0],[.059,0],[.070,.022],[.079,.147],[.077,.161]],inner:[[.062,.161],[.050,.033],[0,.033]]},
+    {name:'陶耳杯',color:0xc4a883,handle:true,
+      outer:[[0,0],[.051,0],[.068,.022],[.078,.101],[.075,.145],[.075,.157]],inner:[[.059,.157],[.050,.032],[0,.032]]},
+    {name:'锡口直杯',color:0x929b8c,bands:[[.167,.066]],
+      outer:[[0,0],[.042,0],[.051,.017],[.066,.163],[.066,.175]],inner:[[.056,.175],[.044,.028],[0,.028]]},
+    {name:'细脚酒盏',color:0x9ca79a,
+      outer:[[0,0],[.061,0],[.062,.013],[.022,.030],[.017,.110],[.043,.13],[.071,.176],[.078,.223]],
+      inner:[[.068,.223],[.059,.175],[.023,.147],[0,.143]]},
+    {name:'浅口陶盏',color:0xb27e57,
+      outer:[[0,0],[.041,0],[.043,.022],[.057,.041],[.087,.073],[.092,.107]],
+      inner:[[.082,.107],[.072,.070],[.038,.046],[0,.042]]},
+    {name:'石釉短盅',color:0x71816d,
+      outer:[[0,0],[.054,0],[.064,.016],[.068,.074],[.059,.103],[.059,.119]],
+      inner:[[.049,.119],[.047,.024],[0,.024]]}
+  ];
+
+  function rackTimber(base,seed){
+    const image=canvas(48,20),draw=image.getContext('2d'),rng=random(seed);
+    for(let y=0;y<20;y++){
+      const vein=3.1*Math.sin(y*1.74)+3.3*Math.sin(y*.52);
+      for(let x=0;x<48;x++){
+        const shade=Math.round(vein+Math.sin(x*.17+y*.49)*2.8+(rng()-.5)*6);
+        draw.fillStyle='rgb('+base.map(v=>v+shade).join(',')+')';
+        draw.fillRect(x,y,1,1);
       }
     }
-    for(const [i,make] of shapes.entries()){
-      if(!stock[i].length)continue;
-      // Keep hundreds of shelf items in a small number of draw calls.
-      const mold=new THREE.Group();
-      make(mold);
-      mold.updateMatrixWorld(true);
-      const matrix=new THREE.Matrix4();
-      mold.traverse(part=>{
-        if(!part.isMesh)return;
-        const instances=new THREE.InstancedMesh(part.geometry,part.material,stock[i].length);
-        for(const [j,placement] of stock[i].entries()){
-          instances.setMatrixAt(j,matrix.multiplyMatrices(placement,part.matrixWorld));
-        }
-        instances.receiveShadow=part.receiveShadow;
-        rack.add(instances);
-      });
-    }
+    const map=texture(image);
+    map.minFilter=THREE.LinearMipmapLinearFilter;
+    return pixelLit(new THREE.MeshStandardMaterial({map,roughness:1}));
+  }
+
+  function rackLabel(parent,x,y,text){
+    const image=canvas(216,44),draw=image.getContext('2d');
+    draw.fillStyle='#554839';
+    draw.fillRect(0,0,216,44);
+    draw.fillStyle='#d7c4a1';
+    draw.font='24px "KaiTi","Microsoft YaHei",serif';
+    draw.textAlign='center';
+    draw.textBaseline='middle';
+    draw.fillText(text,108,23,199);
+    const tag=new THREE.Mesh(new THREE.PlaneGeometry(.49,.097),
+      new THREE.MeshBasicMaterial({map:texture(image)}));
+    tag.position.set(x,y,.291);
+    parent.add(tag);
+  }
+
+  function instanceVessels(rack,create,placements){
+    const mold=new THREE.Group();
+    create(mold);
+    mold.updateMatrixWorld(true);
+    const matrix=new THREE.Matrix4();
+    mold.traverse(part=>{
+      if(!part.isMesh)return;
+      const instances=new THREE.InstancedMesh(part.geometry,part.material,placements.length);
+      for(const [index,placement] of placements.entries()){
+        instances.setMatrixAt(index,matrix.multiplyMatrices(placement,part.matrixWorld));
+      }
+      instances.receiveShadow=part.receiveShadow;
+      rack.add(instances);
+    });
   }
 
   function backBarShelves(){
     const rack=group(scene,5.50,0,0,-Math.PI/2);
-    const shelfWidth=9.34,bays=6,bayWidth=shelfWidth/bays;
+    const width=9.34,bays=6,bayWidth=width/bays;
     const levels=[.24,.83,1.43,2.02,2.61];
-    const frame=matte('darkwood',3);
-    block(rack,0,1.66,-.252,shelfWidth,2.96,.056,matte('darkwood',5),false,.65);
-    block(rack,0,.166,.012,shelfWidth,.19,.49,frame,true,.56);
+    const boards=rackTimber([99,84,68],778);
+    const frame=rackTimber([79,67,55],781);
+    const back=rackTimber([63,55,48],783);
+    block(rack,0,1.66,-.185,width,2.96,.054,back,false,.83);
+    block(rack,0,.166,.012,width,.19,.49,frame,false,.78);
     for(let i=0;i<=bays;i++){
-      const x=-shelfWidth/2+i*bayWidth;
-      block(rack,x,1.696,.025,.099,3.060,.536,frame,true,.52);
+      const x=-width/2+i*bayWidth;
+      block(rack,x,1.696,.025,i===4?.134:.099,3.060,.536,frame,true,.70);
     }
-    for(const [index,y] of levels.entries()){
-      block(rack,0,y,0,shelfWidth,.097,.536,matte('oak',index+2),true,.65);
-      block(rack,0,y-.057,.252,shelfWidth,.049,.058,matte('oak',index+3),true,.53);
+    for(const y of levels){
+      block(rack,0,y,0,width,.106,.536,boards,true,.90);
     }
-    block(rack,0,3.22,.035,shelfWidth,.112,.595,frame,true,.56);
-    block(rack,0,3.156,.302,shelfWidth,.043,.045,matte('oak',2),true,.57);
-    fillBackBar(rack,levels,bayWidth,bays);
-    for(const z of [-2.46,2.37]){
-      const spill=new THREE.PointLight(0xffc48b,5.6,4.1,2);
-      spill.position.set(4.54,2.78,z);
+    block(rack,0,3.206,.020,width,.105,.539,frame,true,.72);
+
+    const rng=random(1282),turn=new THREE.Quaternion(),vertical=V(0,1,0);
+    const wineStock=tavernDrinks.map(()=>[]);
+    const cupStock=tavernCups.map(()=>[]);
+    for(let bay=0;bay<bays;bay++){
+      const center=(bay-(bays-1)/2)*bayWidth;
+      const wine=bay<tavernDrinks.length;
+      if(wine)rackLabel(rack,center,1.423,tavernDrinks[bay].name);
+      for(const [tier,y] of levels.entries()){
+        const cupType=(bay-4)*3+(tier===0?0:tier===1?1:tier===2?2:tier-3);
+        const stock=wine?wineStock[bay]:cupStock[cupType];
+        if(!wine&&tier<3)rackLabel(rack,center,y-.008,tavernCups[cupType].name);
+        for(let depth=0;depth<2;depth++){
+          const count=wine?6:7;
+          const pitch=wine?.222:.195;
+          for(let k=0;k<count;k++){
+            const x=center+(k-(count-1)/2)*pitch+(rng()-.5)*.016;
+            const z=(depth===0?-.089:.123)+(rng()-.5)*.017;
+            const scale=(.90+rng()*.145)*(wine&&bay===1?.94:1);
+            turn.setFromAxisAngle(vertical,(rng()-.5)*.64);
+            stock.push(new THREE.Matrix4().compose(V(x,y+.054,z),turn,V(scale,scale,scale)));
+          }
+        }
+      }
+    }
+    tavernDrinks.forEach((drink,i)=>instanceVessels(rack,p=>stockedBottle(p,drink),wineStock[i]));
+    tavernCups.forEach((cup,i)=>instanceVessels(rack,p=>stockedCup(p,cup),cupStock[i]));
+    for(const z of [-2.51,2.38]){
+      const spill=new THREE.PointLight(0xffd7ac,2.6,4.20,2);
+      spill.position.set(4.45,2.72,z);
       scene.add(spill);
     }
-    collider(rack,0,0,shelfWidth,.54);
+    collider(rack,0,0,width,.54);
   }
 
   function counter(){
@@ -2773,12 +3025,12 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const fireplace=hearth();
   shelves();
   for(const table of [
-    {x:-2.70,z:-.22,width:2.36,depth:1.34,turn:-.055,wood:1071,
-      seats:[[-.63,-1.02,.16],[.64,-1.03,-.11],[-.65,1.04,.09],[.62,1.03,-.13]]},
+    {x:-4.92,z:.21,width:2.36,depth:1.34,turn:Math.PI/2,wood:1071,
+      seats:[[-.65,1.04,.09],[.62,1.03,-.13]]},
     {x:-.66,z:-2.83,width:2.14,depth:1.18,turn:.035,wood:3629,
       seats:[[-.57,-.93,.05],[.53,-.93,-.10],[-.58,.95,.14],[.51,.94,-.11]]},
-    {x:-3.49,z:2.64,width:2.31,depth:1.27,turn:.038,wood:6071,
-      seats:[[-.64,-.99,.12],[.58,-.99,-.16],[-.66,.98,-.08],[.56,1.00,.11]]}
+    {x:-4.96,z:3.23,width:2.31,depth:1.27,turn:Math.PI/2,wood:6071,
+      seats:[[-.66,.98,-.08],[.56,1.00,.11]]}
   ])servingTable(table);
   backBarShelves();
   const {g,c}=counter();
@@ -2799,7 +3051,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 
   const walking = new Set();
   const arrows={ArrowUp:'KeyW',ArrowDown:'KeyS',ArrowLeft:'KeyA',ArrowRight:'KeyD'};
-  let started=false, dragging=false, open=false, rolled=false;
+  let started=false, dragging=false, open=false;
   let guess=0, noteTime=0;
   const direction=V(0,0,-1);
   const aim=V(0,0,0);
@@ -2875,7 +3127,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       if(z<5.10){
         return curtain.amount>.76&&Math.abs(x-kitchenDoorway.x)<kitchenDoorway.half-.22;
       }
-      return Math.abs(x-kitchenRoom.x)<kitchenRoom.halfWidth-.22&&z<8.42;
+      return Math.abs(x-kitchenRoom.x)<kitchenRoom.halfWidth-.22&&z<kitchenRoom.z+kitchenRoom.halfDepth-.22;
     }
     if(z>-5.13){
       return northDoor.hinge.rotation.y>1.15&&Math.abs(x-northDoorway.x)<northDoorway.half-.22;
@@ -2910,37 +3162,87 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     return selected;
   }
+  const keeperTopics=[
+    {id:'worker',label:'今晚的排水工',line:()=>
+      '“值夜的排水工本来换更就到。他那杯麦酒还在我这儿记着。这几天上游下雨，他去看干渠口，已经迟了一更。”'},
+    {id:'road',label:'灰脊旧商道',line:()=>
+      '“砧脊堡的人当年从山腹穿过去，省得冬天在黑铜关等雪化。龙战之后两头的门封了两百年。听说领主想重开，可谁也拿不出旧王厅如今的图。”'},
+    {id:'river',label:'河道和水位',line:()=>
+      '“出北门，下右手边的石阶，走到岔口再分路。南边的石台能上船，北边才是检修门。石台上有一道旧红线，水涨到那里，就先把河边封上。”'},
+    {id:'stock',label:'架上的酒和后厨',line:()=>
+      '“麦酒从南麦丘来，长枝林送蜂蜜酒，砧脊堡的人爱喝黑麦烧酒。后厨那口大缸是石犬岭来的浆果酒。那酒用深红的浆果皮一块儿发酵，倒出来也红得很。”'},
+    {id:'report',label:'说说刚才看到的',line:keeperReport}
+  ];
+  let keeperCheck=null;
+
+  function keeperReport(){
+    if(observations.outfall&&observations.waterMark){
+      return '“你对过红线，也看到了干渠口。那就先记下水位。干渠出水不等于人已经回来了，我会继续给他留门。”';
+    }
+    if(observations.outfall){
+      return '“好，干渠还往河里排水。再去石台看看旧红线，那是在河边干活的人最先留意的东西。”';
+    }
+    if(observations.waterMark){
+      return '“那条红线就是封河边通道的记号。要找迟归的人，再去检修步道看看干渠口，别只在石台等他。”';
+    }
+    return '“你走到石台了。船是走河路的，排水工也可能从检修步道出来。两处都值得看一眼。”';
+  }
+
+  function renderKeeperTopic(topic){
+    const result=byId('roll-result');
+    const check=byId('check');
+    byId('dialogue').textContent=topic.line();
+    const hasEvidence=observations.outfall||observations.waterMark;
+    check.textContent='追问检修道 · 魅力检定 '+(hasEvidence?10:13);
+    check.hidden=topic.id!=='worker'||keeperCheck!==null;
+    result.hidden=topic.id!=='worker'||keeperCheck===null;
+    if(keeperCheck&&topic.id==='worker'){
+      const {die,dc,line}=keeperCheck;
+      result.textContent='掷出 '+die+' + 2，对 '+dc+'。'+line;
+    }
+  }
+
   function finishTalk(){
     talk.hidden=true;
     open=false;
     cursor.hidden=false;
     lock();
   }
+
   function beginTalk(){
     open=true;
+    walking.clear();
     talk.hidden=false;
     prompt.hidden=true;
     cursor.hidden=true;
-    document.exitPointerLock?.();
-    byId('dialogue').textContent=rolled
-      ? '托伦把账本翻回原来那页，抬眼看了看门。'
-      : '“那位清渠工迟了一更。想去排水道的话，先说说你上次走的哪条路。”';
-    byId('check').hidden=rolled;
-    byId('leave').focus();
+    if(document.pointerLockElement)document.exitPointerLock?.();
+    byId('dialogue').textContent=observations.dock||observations.waterMark||observations.outfall
+      ?'“你下去过了？先坐。河边看见什么了？”'
+      :'“进来吧，门口别站着。是要问酒，还是问城里的事？”';
+    byId('check').hidden=true;
+    byId('roll-result').hidden=true;
+    byId('topic-report').hidden=!(observations.dock||observations.waterMark||observations.outfall);
+    byId('topic-worker').focus();
+  }
+
+  for(const topic of keeperTopics){
+    byId('topic-'+topic.id).addEventListener('click',()=>{
+      if(open)renderKeeperTopic(topic);
+    });
   }
   byId('leave').addEventListener('click',finishTalk);
   byId('check').addEventListener('click',()=>{
-    if(!open||rolled)return;
+    if(!open||keeperCheck||byId('check').hidden)return;
+    const dc=observations.outfall||observations.waterMark?10:13;
     const die=1+Math.floor(Math.random()*20);
-    const bonus=2;
-    rolled=true;
-    const line=die+bonus>=13
-      ? '“出北门，沿右侧楼梯下去。再走一段才到岔口，河台和排水检修门走不同支路。今晚雨大，记得带灯。”'
-      : '“门钥匙在清渠班手里。你可以先找更夫，他认得走地下的人。”';
-    byId('dialogue').textContent='魅力检定 ' + die+' + '+bonus+' 对 13。'+line;
-    byId('check').hidden=true;
-    byId('leave').focus();
+    const line=die+2>=dc
+      ?'“检修门旁有个木架，值班的排水工把钥匙放在那里。进去走高一点的步道，能看清干渠在哪儿入河。”'
+      :'“我也说不准他走了哪条路。你先到石台看看水位，回来再说。”';
+    keeperCheck={die,dc,line};
+    renderKeeperTopic(keeperTopics[0]);
+    byId('topic-worker').focus();
   });
+
   window.addEventListener('keydown',event=>{
     if(event.code==='Escape'&&open){finishTalk();return;}
     if(!started||open)return;
