@@ -19,13 +19,20 @@ button:hover,button:focus-visible{background:#60432a;outline:1px solid #edbc74;o
 #talk{position:absolute;bottom:7%;left:50%;transform:translateX(-50%);width:min(580px,calc(100% - 40px));color:var(--paper);background:#20170eee;border:1px solid #987a50;border-top:2px solid #c2a278;padding:18px 20px;box-shadow:0 9px 40px #100c08a0}
 #talk h2{margin:0 0 7px;font-size:22px;letter-spacing:.10em;font-weight:400}#talk p{margin:0 0 14px;line-height:1.65}#talk .choices{display:flex;gap:10px;flex-wrap:wrap}
 #talk button{padding:7px 11px;font-size:14px}
+#map-dialog{position:absolute;inset:0;z-index:4;display:grid;place-items:center;padding:14px;background:#0d100eea}
+#map-body{width:min(1080px,95vw,calc((100dvh - 60px)*1.565));max-height:96vh;display:grid;gap:7px}
+#map-sheet{position:static!important;display:block;width:100%!important;height:auto!important;image-rendering:auto;box-shadow:0 10px 42px #0008}
+#map-close{justify-self:end;font-size:14px;padding:5px 11px}
 </style>
 </head>
 <body>
 <main id="game">
-<section id="welcome" aria-label="开始游戏"><h1>沉钟河 · 地下酒馆</h1><button id="start">进入酒馆</button><p>WASD 走动　鼠标转向　E 交互　Esc 释放鼠标</p></section>
+<section id="welcome" aria-label="开始游戏"><h1>沉钟河 · 地下酒馆</h1><button id="start">进入酒馆</button><p>WASD 走动　鼠标转向　E 交互　M 地图　Esc 释放鼠标</p></section>
 <span id="reticle" hidden></span><p id="interaction" hidden></p><p id="status" role="status"></p>
 <section id="talk" hidden role="dialog" aria-label="与店主托伦交谈"><h2>托伦</h2><p id="dialogue" aria-live="polite"></p><div class="choices"><button id="check">打听检修道 · 魅力检定</button><button id="leave">结束交谈</button></div></section>
+<section id="map-dialog" hidden role="dialog" aria-modal="true" aria-label="地下水路地图">
+  <div id="map-body"><canvas id="map-sheet" role="img" aria-label="地下酒馆、排水干渠与两岸走道的平面及高程图"></canvas><button id="map-close">关闭地图 · M / Esc</button></div>
+</section>
 </main>
 <script>
 /* The MIT License
@@ -547,7 +554,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const passageGate={x:tunnelMouth.x,z:stairExitZ-.76};
   const underground={
     passage:null, service:null, key:false, lantern:null, waterTime:{value:0},
-    boat:null, lamps:[]
+    sailor:null, lamps:[]
   };
 
   function inRect({minX,maxX,minZ,maxZ},x,z){
@@ -580,7 +587,181 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const undergroundAreas=[...tunnelAreas,dockPad,stepPad,serviceBank];
   const rampStart=30.33,rampEnd=40.33;
 
+  // West/east limits come from one profile shared by the mesh, boat, banks and map.
+  const riverProfile=[
+    [-81,54.30,5.25],[-70,55.80,5.65],[-61,60.85,5.75],
+    [-54,55.60,6.00],[-49,55.60,6.00],[-42,54.20,5.70],
+    [-32,61.80,6.30],[-19,55.72,6.00],[-11,55.72,6.00],
+    [1,63.48,6.10],[12,67.40,5.95],[24,60.30,6.75],[38,54.20,5.55]
+  ];
+  const riverNorth=riverProfile[0][0];
+  const riverSouth=riverProfile[riverProfile.length-1][0];
+  const bankWidth=2.44;
+  const dockZRange={min:dockPad.minZ,max:dockPad.maxZ};
+  const alcoves=[
+    {side:1,z:-34,halfLength:4.4,depth:6.8,name:'东岸预留侧室'},
+    {side:-1,z:12,halfLength:5.1,depth:7.5,name:'西岸预留支路'}
+  ];
+  const berths=[
+    {side:-1,z:dockZ,name:'系船石台',stone:true},
+    {side:1,z:-15,name:'对岸栈台'},
+    {side:-1,z:-65,name:'上游西岸栈台'},
+    {side:1,z:18,name:'下游东岸栈台'}
+  ];
+  const canalProfile=[
+    [-19,-55.72,-1.30],[-4,-55.72,-1.54],[12,-55.72,-1.86],
+    [31,-55.14,-2.28],[42,-54.31,-2.56],[50.25,-52.32,-2.96]
+  ];
+
+  function riverSection(z){
+    for(let i=1;i<riverProfile.length;i++){
+      const a=riverProfile[i-1],b=riverProfile[i];
+      if(z>b[0]&&i<riverProfile.length-1)continue;
+      const t=clamp((z-a[0])/(b[0]-a[0]),0,1);
+      const curve=t*t*(3-2*t);
+      const center=THREE.MathUtils.lerp(a[1],b[1],curve);
+      const half=THREE.MathUtils.lerp(a[2],b[2],curve);
+      return {z,center,west:center-half,east:center+half,half};
+    }
+  }
+
+  function bankWidthAt(side,z){
+    const pocket=alcoves.find(a=>a.side===side);
+    if(!pocket)return bankWidth;
+    const range=clamp((pocket.halfLength+.95-Math.abs(z-pocket.z))/.95,0,1);
+    return bankWidth+pocket.depth*range*range*(3-2*range);
+  }
+
+  function riverEdge(side,z){
+    const section=riverSection(z);
+    return side<0?section.west:section.east;
+  }
+
+  function bankEdge(side,z){
+    return riverEdge(side,z)+side*bankWidthAt(side,z);
+  }
+
+  function berthAt(pier){
+    return {
+      boatX:riverEdge(pier.side,pier.z)-pier.side*1.20,
+      landX:pier.stone?48.18:riverEdge(pier.side,pier.z)+pier.side*.72,
+      z:pier.z
+    };
+  }
+
+  function riverHeight(x,z){
+    if(z<riverNorth+1.08||z>riverSouth-1.08)return null;
+    const {west,east}=riverSection(z);
+    const westDock=z>dockZRange.min&&z<dockZRange.max;
+    if(!westDock&&x<=west-.045&&x>=west-bankWidthAt(-1,z))return landingFloor;
+    if(x>=east+.045&&x<=east+bankWidthAt(1,z))return landingFloor;
+    for(const berth of berths){
+      if(berth.stone||Math.abs(z-berth.z)>.95)continue;
+      const edge=berth.side<0?west:east;
+      const shore=(x-edge)*berth.side;
+      if(shore>=-.81&&shore<.045)return landingFloor-.13;
+    }
+    return null;
+  }
+
+  function onUndergroundFloor(x,z){
+    return riverHeight(x,z)!==null||undergroundAreas.some(rect=>inRect(rect,x,z));
+  }
+
+  function boatFits(x,z,heading){
+    const dx=-Math.sin(heading),dz=-Math.cos(heading);
+    for(const length of [-1.15,0,1.35]){
+      const sampleZ=z+dz*length,sampleX=x+dx*length;
+      if(sampleZ<riverNorth+.85||sampleZ>riverSouth-.85)return false;
+      const {west,east}=riverSection(sampleZ);
+      if(sampleX<west+.72||sampleX>east-.72)return false;
+    }
+    for(const berth of berths){
+      if(berth.stone||Math.abs(z-berth.z)>2.25)continue;
+      const base=riverEdge(berth.side,z);
+      if((x-base)*berth.side>-.84)return false;
+    }
+    return true;
+  }
+
+  function nearbyBerth(){
+    const sailor=underground.sailor;
+    let best=null,bestDistance=2.65;
+    for(const berth of berths){
+      const here=berthAt(berth);
+      const distance=Math.hypot(sailor.x-here.boatX,sailor.z-here.z);
+      if(distance<bestDistance){best=berth;bestDistance=distance;}
+    }
+    return best;
+  }
+
+  function boardBoat(){
+    const sailor=underground.sailor;
+    if(sailor.riding||!sailor.berth)return;
+    const landing=berthAt(sailor.berth);
+    if(Math.hypot(eye.x-landing.landX,eye.z-landing.z)>2.35)return;
+    const pier=sailor.berth;
+    sailor.riding=true;
+    sailor.berth=null;
+    // Push off to give the bow and stern enough room to turn.
+    sailor.x=riverEdge(pier.side,pier.z)-pier.side*2.17;
+    sailor.speed=0;
+    yaw=sailor.heading;
+    pitch=-.13;
+    walking.clear();
+    caption('W 前进 · S 后退 · A/D 转向 · 靠近栈台按 E 上岸');
+  }
+
+  function leaveBoat(){
+    const berth=nearbyBerth();
+    if(!berth){
+      caption('把船驶近石台或木栈台，再按 E 上岸。');
+      return;
+    }
+    const sailor=underground.sailor;
+    const pos=berthAt(berth);
+    sailor.berth=berth;
+    sailor.riding=false;
+    sailor.speed=0;
+    sailor.heading=0;
+    sailor.x=pos.boatX;
+    sailor.z=pos.z;
+    sailor.target.point.set(pos.boatX,riverSurface+.38,pos.z);
+    sailor.target.disabled=false;
+    eye.x=pos.landX;
+    eye.z=pos.z;
+    ground=landingFloor;
+    yaw=berth.side<0?-Math.PI/2:Math.PI/2;
+    pitch=-.17;
+    walking.clear();
+    caption('已靠岸 · '+berth.name);
+  }
+
+  function sailBoat(dt,throttle,steer){
+    const sailor=underground.sailor;
+    const turn=-steer*dt*1.65;
+    const candidate=sailor.heading+turn;
+    if(boatFits(sailor.x,sailor.z,candidate)){
+      sailor.heading=candidate;
+      yaw+=turn;
+    }
+    const target=throttle>0?3.55:throttle<0?-1.70:0;
+    sailor.speed+=(target-sailor.speed)*(1-Math.exp(-dt*2.75));
+    const distance=sailor.speed*dt;
+    const steps=Math.max(1,Math.ceil(Math.abs(distance)/.13));
+    const dx=-Math.sin(sailor.heading)*distance/steps;
+    const dz=-Math.cos(sailor.heading)*distance/steps;
+    for(let i=0;i<steps;i++){
+      if(boatFits(sailor.x+dx,sailor.z+dz,sailor.heading)){sailor.x+=dx;sailor.z+=dz;}
+      else if(Math.abs(dz)>1e-5&&boatFits(sailor.x,sailor.z+dz,sailor.heading))sailor.z+=dz;
+      else if(Math.abs(dx)>1e-5&&boatFits(sailor.x+dx,sailor.z,sailor.heading))sailor.x+=dx;
+      else {sailor.speed=0;break;}
+    }
+  }
+
   function undergroundHeight(x,z){
+    const bank=riverHeight(x,z);
+    if(bank!==null)return bank;
     if(inRect(stepPad,x,z)){
       return landingFloor-.17*Math.min(4,1+Math.floor((x-dockSteps)/((dockEnd-dockSteps)/4)));
     }
@@ -590,12 +771,12 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
 
   function undergroundWalkable(x,z){
-    if(!undergroundAreas.some(rect=>inRect(rect,x,z)))return false;
+    if(!onUndergroundFloor(x,z))return false;
     const radius=.22;
     for(const [dx,dz] of [[radius,0],[-radius,0],[0,radius],[0,-radius]]){
       const px=x+dx,pz=z+dz;
       if(stairAt(px,pz))continue;
-      if(!undergroundAreas.some(rect=>inRect(rect,px,pz)))return false;
+      if(!onUndergroundFloor(px,pz))return false;
     }
     for(const gate of [underground.passage,underground.service]){
       if(gate&&!gate.opened&&Math.abs(z-gate.z)<.28&&Math.abs(x-gate.x)<1.14)return false;
@@ -783,15 +964,17 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return {x,z,hinge,target,opened:false};
   }
 
-  function waterMaterial(flowX,flowZ,base,foam){
+  function waterMaterial(flowX,flowZ,base,foam,curves=false){
     return new THREE.ShaderMaterial({
       uniforms:{uTime:underground.waterTime,uFlow:{value:new THREE.Vector2(flowX,flowZ)},
-        uBase:{value:new THREE.Color(base)},uFoam:{value:new THREE.Color(foam)}},
+        uBase:{value:new THREE.Color(base)},uFoam:{value:new THREE.Color(foam)},uCurves:{value:curves}},
       vertexShader:`
         varying vec3 vWorld;
+        varying vec2 vChannel;
         void main(){
           vec4 world=modelMatrix*vec4(position,1.0);
           vWorld=world.xyz;
+          vChannel=uv;
           gl_Position=projectionMatrix*viewMatrix*world;
         }`,
       fragmentShader:`
@@ -799,11 +982,13 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         uniform vec2 uFlow;
         uniform vec3 uBase;
         uniform vec3 uFoam;
+        uniform bool uCurves;
         varying vec3 vWorld;
+        varying vec2 vChannel;
         void main(){
           vec2 p=vWorld.xz;
-          float along=dot(p,uFlow)-uTime*.64;
-          float across=dot(p,vec2(-uFlow.y,uFlow.x));
+          float along=(uCurves?vChannel.y:dot(p,uFlow))-uTime*.64;
+          float across=uCurves?vChannel.x:dot(p,vec2(-uFlow.y,uFlow.x));
           float surface=sin(across*2.8+along*.81)*sin(along*2.2-across*.87);
           float trace=sin(across*6.9+sin(along*.88)*1.6);
           float ripple=smoothstep(.31,.82,surface)*smoothstep(.08,.80,trace);
@@ -817,10 +1002,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
 
   function canalScenery(parent,mats){
-    const channel=[
-      [-19,-55.72,-1.30],[-4,-55.72,-1.54],[12,-55.72,-1.86],
-      [31,-55.14,-2.28],[42,-54.31,-2.56],[49.60,-52.32,-2.96]
-    ];
+    const channel=canalProfile;
     const water=quadBatch(),banks=quadBatch();
     for(let i=1;i<channel.length;i++){
       const [ax,az,ay]=channel[i-1],[bx,bz,by]=channel[i];
@@ -846,7 +1028,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     block(parent,serviceBank.minX-.1,.82,centerZ,.20,2.84,depth,mats.wet,false);
     block(parent,16,2.47,-55.5,68,.37,8.8,mats.vault,false);
     block(parent,-19.14,-.04,-55.52,.25,3.18,4.82,mats.wet,false);
-    const outlet=group(parent,48.12,-2.89,-53.17,Math.PI/2);
+    const outlet=group(parent,46.74,-2.89,-53.17,Math.PI/2);
     const profile=[[-2.8,0],[-2.66,1.69],[-2.18,2.73],[-1.30,3.42],
       [0,3.67],[1.30,3.42],[2.18,2.73],[2.66,1.69],[2.8,0]];
     for(let i=1;i<profile.length;i++){
@@ -872,7 +1054,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
 
   function mooringBoat(parent){
-    const boat=group(parent,50.80,riverSurface+.05,dockZ+.05,-.11);
+    const berth=berths[0];
+    const initial=berthAt(berth);
+    const boat=group(parent,initial.boatX,riverSurface+.05,initial.z,Math.PI);
     const outer=[[0,1.65],[-.43,1.12],[-.61,.39],[-.58,-.99],[-.41,-1.34],
       [.41,-1.34],[.58,-.99],[.61,.39],[.43,1.12]];
     const hull=quadBatch(),interior=quadBatch();
@@ -889,68 +1073,210 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const lighter=new THREE.MeshStandardMaterial({map:matte('boards',2).map,color:0xc3a984,side:THREE.DoubleSide,roughness:.94});
     hull.mesh(boat,wood);
     interior.mesh(boat,lighter);
+    const floorShape=new THREE.Shape(outer.map(([x,z])=>new THREE.Vector2(x*.74,z*.86)));
+    const sole=new THREE.Mesh(new THREE.ShapeGeometry(floorShape),lighter);
+    sole.rotation.x=Math.PI/2;
+    sole.position.y=.113;
+    boat.add(sole);
     block(boat,0,.082,-.24,.81,.083,1.82,matte('boards',1),false,.53);
     for(const z of [-.65,.38]){
       block(boat,0,.28,z,1.03,.085,.26,matte('weathered',3),true,.49);
     }
-    const line=new THREE.BufferGeometry().setFromPoints([V(48.39,landingFloor+.46,-16.27),
-      V(49.53,-2.57,-16.04),V(50.43,-2.66,-16.28)]);
-    parent.add(new THREE.Line(line,new THREE.LineBasicMaterial({color:0x9e8463})));
-    underground.boat=boat;
+    const oars=[];
+    for(const side of [-1,1]){
+      const oar=group(boat,side*.58,.34,.24);
+      block(oar,side*.11,0,0,1.32,.051,.053,matte('oak',2),false,.5);
+      block(oar,side*.83,-.03,0,.42,.041,.166,matte('weathered',2),true,.35);
+      oars.push({side,oar});
+    }
+    const ropeGeometry=new THREE.BufferGeometry();
+    ropeGeometry.setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(9),3));
+    const rope=new THREE.Line(ropeGeometry,new THREE.LineBasicMaterial({color:0x847057}));
+    rope.frustumCulled=false;
+    parent.add(rope);
+    const target={name:'登上小船',kind:'board-boat',point:V(initial.boatX,riverSurface+.39,initial.z),radius:1.28,range:3.65};
+    interactive.push(target);
+    underground.sailor={boat,oars,rope,target,berth,x:initial.boatX,z:initial.z,
+      heading:0,speed:0,riding:false};
   }
 
-  function caveBank(parent){
-    const rng=random(441);
-    const columns=[];
-    const levels=[-3.50,-2.73,-1.48,-.20,1.33,3.55];
-    const profile=[.13,-.32,-.71,.22,.66,-.06];
-    for(let z=-74;z<=31;z+=1.35+rng()*1.25){
-      const bank=60.71+.71*Math.sin(z*.52)+.48*Math.sin(z*.19);
-      columns.push(levels.map((y,i)=>[
-        bank+profile[i]+(rng()-.5)*1.38,y+(rng()-.5)*.62,z+(rng()-.5)*.65
-      ]));
-    }
-    const positions=[],colors=[];
-    const stoneColors=[0x414c43,0x3d4b43,0x4d574a,0x50554a,0x35443f].map(c=>new THREE.Color(c));
-    const shade=new THREE.Color();
-    function facet(a,b,c){
-      shade.copy(choose(stoneColors,rng)).multiplyScalar(.87+rng()*.25);
-      for(const v of [a,b,c]){
-        positions.push(...v);
-        colors.push(shade.r,shade.g,shade.b);
+  function riverSurfaceMesh(parent,samples){
+    const positions=[],uvs=[];
+    let length=0;
+    for(let i=1;i<samples.length;i++){
+      const a=samples[i-1],b=samples[i];
+      const next=length+Math.hypot(b.center-a.center,b.z-a.z);
+      const verts=[[a.west,a.z,-a.half,length],[b.west,b.z,-b.half,next],
+        [b.east,b.z,b.half,next],[a.east,a.z,a.half,length]];
+      for(const j of [0,1,2,0,2,3]){
+        const [x,z,u,v]=verts[j];
+        positions.push(x,riverSurface,z);
+        uvs.push(u,v);
       }
+      length=next;
     }
-    for(let i=1;i<columns.length;i++){
-      for(let j=1;j<levels.length;j++){
-        const a=columns[i-1][j-1],b=columns[i][j-1],c=columns[i][j],d=columns[i-1][j];
-        if((i+j)%2===0){ facet(a,b,c); facet(a,c,d); }
-        else { facet(a,b,d); facet(b,c,d); }
+    const geometry=new THREE.BufferGeometry();
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+    geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+    parent.add(new THREE.Mesh(geometry,waterMaterial(0,1,0x1b3b38,0x6e9888,true)));
+  }
+
+  function cavernMouth(parent,mats,z){
+    const north=z===riverNorth;
+    const section=riverSection(z);
+    const beyond=north?-1:1;
+    const throatZ=z+beyond*8.4;
+    const throat=riverSection(throatZ);
+    const curtain=group(parent,throat.center,riverSurface,throatZ+beyond*.39);
+    const width=section.half+.75;
+    const throatWidth=throat.half*.73;
+    const rim=[[-width,-.10],[-width,2.0],[-width*.79,3.75],[-width*.48,5.03],
+      [-width*.14,5.31],[width*.29,5.04],[width*.67,4.32],[width*.90,3.10],[width,1.9],[width,-.10]];
+    const positions=[],uvs=[];
+    for(let i=0;i<rim.length;i++){
+      for(const [x,y] of [[0,1.7],rim[i],rim[(i+1)%rim.length]]){
+        positions.push(x*throatWidth/width,y*.79,0);
+        uvs.push(x/(width*2)+.5,y/5.35);
       }
     }
     const geometry=new THREE.BufferGeometry();
     geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
-    geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
-    geometry.computeVertexNormals();
-    const material=new THREE.MeshStandardMaterial({
-      vertexColors:true,roughness:.99,emissive:0x306159,emissiveIntensity:.10
+    geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+    const glow=new THREE.ShaderMaterial({
+      side:THREE.DoubleSide,
+      uniforms:{haze:{value:new THREE.Color(north?0x8bacb6:0xd4bc88)}},
+      vertexShader:`
+        varying vec2 vUv;
+        void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}
+      `,
+      fragmentShader:`
+        varying vec2 vUv;
+        uniform vec3 haze;
+        void main(){
+          vec2 p=(vUv-vec2(.48,.34))*vec2(2.18,1.43);
+          float strength=exp(-4.8*dot(p,p))*.205;
+          float veil=sin(vUv.x*19.0+sin(vUv.y*13.0)*.7)*.018;
+          gl_FragColor=vec4(vec3(.004,.0055,.006)+haze*max(0.0,strength+veil),1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `
     });
-    parent.add(new THREE.Mesh(geometry,material));
+    curtain.add(new THREE.Mesh(geometry,glow));
+
+    const rockface=quadBatch();
+    for(const side of [-1,1]){
+      const edge=throat.center+side*throatWidth;
+      const outside=throat.center+side*(throat.half+bankWidth+1.8);
+      const inner=[[edge,0],[edge+side*.26,2.1],[edge*.82+throat.center*.18,3.23],
+        [throat.center+side*.60,4.03]];
+      for(let i=1;i<inner.length;i++){
+        const [a,ay]=inner[i-1],[b,by]=inner[i];
+        rockface.quad([[outside,riverSurface+ay,throatZ],[a,riverSurface+ay,throatZ+.06],
+          [b,riverSurface+by,throatZ-.09],[outside,riverSurface+by,throatZ]],'x','y');
+      }
+    }
+    const capLeft=throat.center-throat.half-bankWidth-1.8;
+    const capRight=throat.center+throat.half+bankWidth+1.8;
+    rockface.quad([[capLeft,riverSurface+4.02,throatZ],[capRight,riverSurface+4.02,throatZ],
+      [capRight,3.66,throatZ],[capLeft,3.66,throatZ]],'x','y');
+    rockface.mesh(parent,mats.wet);
+    const stone=group(parent,section.center,riverSurface,z+(north?.54:-.54));
+    for(let i=1;i<rim.length;i++){
+      const [ax,ay]=rim[i-1],[bx,by]=rim[i];
+      block(stone,(ax+bx)/2,(ay+by)/2,0,Math.hypot(bx-ax,by-ay)+.27,.74,1.49,
+        mats.wet,false,.62,Math.atan2(by-ay,bx-ax));
+    }
+    for(const side of [-1,1]){
+      block(stone,side*(width+1.15),2.56,0,2.40,5.51,1.57,mats.wet,false);
+    }
+    const light=new THREE.PointLight(north?0x9abac9:0xefc895,19,15,2);
+    light.position.set(section.center,riverSurface+1.90,z+beyond*2.7);
+    parent.add(light);
+    underground.lamps.push(light);
+  }
+
+  function bankLanding(parent,mats,pier){
+    if(pier.stone)return;
+    const edge=riverEdge(pier.side,pier.z);
+    const dock=group(parent,edge,landingFloor,pier.z);
+    const wood=matte('weathered',2),strut=matte('darkwood',2);
+    for(let i=-4;i<=4;i++){
+      block(dock,-pier.side*.25,-.18,i*.215,1.15,.10,.203,wood,false,.50);
+    }
+    for(const z of [-.73,.73]){
+      block(dock,-pier.side*.58,-.62,z,.12,1.20,.12,strut,true,.38);
+      block(dock,pier.side*.19,-.49,z,.11,.96,.11,strut,true,.34);
+    }
+    block(dock,pier.side*.30,.035,0,.56,.108,1.77,(mats.floor),false);
+    block(dock,pier.side*.30,.25,-.68,.16,.46,.16,matte('iron',3),true,.32);
+    const lightZ=pier.z-.49;
+    tunnelLantern(parent,bankEdge(pier.side,lightZ)-pier.side*.22,landingFloor+1.36,lightZ);
   }
 
   function riverScenery(parent,mats){
-    const surface=quadBatch();
-    surface.quad([[49.50,riverSurface,-73],[49.50,riverSurface,28],[62.30,riverSurface,28],[62.30,riverSurface,-73]]);
-    surface.mesh(parent,waterMaterial(0,1,0x183633,0x6b9184));
-    block(parent,64.0,1.0,-21.5,2.1,8,102,mats.wet,false);
-    block(parent,56.12,3.56,-21.5,16.2,.74,103,mats.vault,false);
-    for(const [a,b] of [[-73,-56.1],[-49.45,dockPad.minZ],[dockPad.maxZ,28]]){
-      block(parent,48.94,.16,(a+b)/2,1.12,6.08,b-a,mats.wet,false);
+    const boundaries=[riverNorth-8.4,riverSouth+8.4,riverNorth,riverSouth,dockZRange.min,dockZRange.max,-55.40,-49.35];
+    for(let z=riverNorth-8.25;z<riverSouth+8.4;z+=.75)boundaries.push(z);
+    const samples=[...new Set(boundaries)].sort((a,b)=>a-b).map(riverSection);
+    const paths=quadBatch(),quays=quadBatch(),rock=quadBatch(),ceiling=quadBatch();
+    function rockPoint(side,section,y){
+      const n=Math.sin(section.z*1.61+y*1.91+side)*.25+Math.cos(section.z*.91+y*3.79)*.16;
+      return [bankEdge(side,section.z)+side*(.57+n),y,section.z];
     }
-    caveBank(parent);
-    const riverLight=new THREE.PointLight(0x78a399,55,24,2);
-    riverLight.position.set(55.6,.51,dockZ-3.10);
+    for(let i=1;i<samples.length;i++){
+      const a=samples[i-1],b=samples[i],middle=(a.z+b.z)/2;
+      for(const side of [-1,1]){
+        const wa=side<0?a.west:a.east,wb=side<0?b.west:b.east;
+        const ea=bankEdge(side,a.z),eb=bankEdge(side,b.z);
+        const dock=side<0&&middle>dockZRange.min&&middle<dockZRange.max;
+        const bridge=side<0&&middle>-55.40&&middle<-49.35;
+        if(!dock){
+          const deck=[[wa,landingFloor,a.z],[wb,landingFloor,b.z],
+            [eb,landingFloor,b.z],[ea,landingFloor,a.z]];
+          paths.quad(side>0?deck:deck.reverse());
+          if(!bridge){
+            quays.quad([[wa,riverSurface-.25,a.z],[wb,riverSurface-.25,b.z],
+              [wb,landingFloor,b.z],[wa,landingFloor,a.z]],'z','y');
+          }else{
+            quays.quad([[wa,landingFloor-.22,a.z],[wb,landingFloor-.22,b.z],
+              [wb,landingFloor,b.z],[wa,landingFloor,a.z]],'z','y');
+          }
+        }
+        if(!dock&&!bridge){
+          for(const [low,high] of [[landingFloor,-.55],[-.55,1.17],[1.17,3.36]]){
+            rock.quad([rockPoint(side,a,low),rockPoint(side,b,low),
+              rockPoint(side,b,high),rockPoint(side,a,high)],'z','y');
+          }
+        }
+      }
+      const roof=[rockPoint(-1,a,3.18),rockPoint(-1,b,3.18),rockPoint(1,b,3.33),rockPoint(1,a,3.33)];
+      for(let j=0;j<roof.length;j++)roof[j][0]+=j<2?-.72:.72;
+      ceiling.quad(roof.reverse());
+    }
+    paths.mesh(parent,mats.floor);
+    quays.mesh(parent,mats.wet);
+    rock.mesh(parent,mats.wet);
+    ceiling.mesh(parent,mats.vault);
+    riverSurfaceMesh(parent,samples);
+
+    for(const z of [riverNorth,riverSouth])cavernMouth(parent,mats,z);
+    for(const pier of berths)bankLanding(parent,mats,pier);
+    const riverLight=new THREE.PointLight(0x83a69b,35,23,2);
+    riverLight.position.set(riverSection(dockZ).center,.65,dockZ-3);
     parent.add(riverLight);
     underground.lamps.push(riverLight);
+
+    for(const alcove of alcoves){
+      const {side,z,halfLength}=alcove;
+      const depth=bankEdge(side,z)-side*.16;
+      for(const end of [-1,1]){
+        const pillarZ=z+end*(halfLength-.93);
+        block(parent,depth,landingFloor+1.10,pillarZ,.43,2.20,.49,mats.wall,false,.51);
+      }
+      block(parent,depth,landingFloor+2.33,z,.49,.34,(halfLength-.61)*2,mats.wall,false,.55);
+      tunnelLantern(parent,riverEdge(side,z)+side*3.26,landingFloor+1.45,z+halfLength-.52);
+    }
+
     block(parent,(dockEntry+dockSteps)/2,landingFloor-.36,dockZ,dockSteps-dockEntry,.72,
       dockPad.maxZ-dockPad.minZ,mats.floor,false);
     const treadWidth=(dockEnd-dockSteps)/4;
@@ -959,21 +1285,17 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       block(parent,dockSteps+(i+.5)*treadWidth,y-.18,dockZ,treadWidth,.36,stepPad.maxZ-stepPad.minZ,mats.floor,false);
     }
     for(const z of [dockPad.minZ,dockPad.maxZ]){
-      block(parent,46.1,landingFloor+1.43,z,4.53,3.12,.27,mats.wet,false);
-      block(parent,47.82,landingFloor+.055,z+Math.sign(dockZ-z)*.147,1.68,.036,.027,solid(0x9b5442),false);
+      block(parent,45.08,landingFloor+1.43,z,2.51,3.12,.27,mats.wet,false);
     }
-    const outsideGap=2*(dockPad.maxZ-stepPad.maxZ);
-    for(const side of [-1,1]){
-      const stone=group(parent,48.36,landingFloor,dockZ+side*2.48);
-      block(stone,0,.31,0,.38,.62,1.68,mats.wall,false);
-      block(parent,48.86,landingFloor-.39,dockZ+side*(1.08+outsideGap/4),.48,.80,outsideGap/2,mats.wet,false);
-    }
-    block(parent,48.34,landingFloor+.25,-16.30,.23,.50,.23,matte('iron',5),true,.25);
-    block(parent,48.34,landingFloor+.49,-16.30,.32,.083,.30,matte('iron',3),true,.20);
+    const markZ=dockPad.minZ+.46;
+    block(parent,46.53,landingFloor+.23,markZ,.24,.47,.30,mats.wall,false);
+    block(parent,46.396,landingFloor+.055,markZ,.032,.040,.32,solid(0x9b5442),false);
+    block(parent,48.31,landingFloor+.25,-16.38,.20,.50,.20,matte('iron',5),true,.25);
+    block(parent,48.31,landingFloor+.49,-16.38,.31,.084,.27,matte('iron',3),true,.20);
     tunnelLantern(parent,46.33,landingFloor+1.74,-17.98);
     mooringBoat(parent);
-    interactive.push({name:'查看系船石台',kind:'dock',point:V(48.30,landingFloor+.86,-16.22),radius:1.15});
-    interactive.push({name:'查看旧水位刻痕',kind:'water-mark',point:V(47.80,landingFloor+.055,dockPad.minZ+.16),radius:1.0});
+    interactive.push({name:'查看系船石台',kind:'dock',point:V(48.30,landingFloor+.86,-16.36),radius:.96});
+    interactive.push({name:'查看旧水位刻痕',kind:'water-mark',point:V(46.41,landingFloor+.055,markZ),radius:.86});
   }
 
   function buildWaterways(){
@@ -1024,6 +1346,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 
   function useUndergroundItem(item){
     switch(item.kind){
+      case 'board-boat':
+        boardBoat();
+        break;
       case 'passage-gate':
         if(!underground.passage.opened){
           underground.passage.opened=true;
@@ -1050,7 +1375,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         }else caption('门锁已经打开。');
         break;
       case 'dock':
-        caption('平水时石台比河面高约一米。地下河向南流出城外。');
+        caption('石台高出平水面约一米。沿两岸可步行，靠近系泊的小船可按 E 登船。');
         break;
       case 'water-mark':
         caption('红线是高水警戒线。水涨到这里就要封住河道支路。');
@@ -1066,13 +1391,231 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       const target=gate.opened?Math.PI*.51:0;
       gate.hinge.rotation.y+=(target-gate.hinge.rotation.y)*transition;
     }
-    const belowStairs=started&&eye.z<stairExitZ+.55&&stairAt(eye.x,eye.z)?.kind!=='street';
+    const sailor=underground.sailor;
+    const belowStairs=started&&(sailor.riding||eye.x>40||
+      (eye.z<stairExitZ+.55&&stairAt(eye.x,eye.z)?.kind!=='street'));
     underground.lantern.visible=belowStairs;
     for(const lamp of underground.lamps)lamp.visible=belowStairs;
-    underground.lantern.position.set(eye.x+.24,camera.position.y-.31,eye.z-.13);
+    underground.lantern.position.set(camera.position.x+.24,camera.position.y-.31,camera.position.z-.13);
     underground.waterTime.value=time/1000;
-    underground.boat.position.y=riverSurface+.05+Math.sin(time*.0013)*.031;
-    underground.boat.rotation.z=Math.sin(time*.00105)*.018;
+    const bob=Math.sin(time*.0013)*.031;
+    sailor.boat.position.set(sailor.x,riverSurface+.05+bob,sailor.z);
+    sailor.boat.rotation.set(0,sailor.heading+Math.PI,Math.sin(time*.00105)*.018);
+    sailor.target.point.set(sailor.x,riverSurface+.38+bob,sailor.z);
+    sailor.target.disabled=!sailor.berth;
+    const stroke=Math.sin(time*.0062)*Math.min(.68,Math.abs(sailor.speed)*.24);
+    for(const {side,oar} of sailor.oars){
+      oar.rotation.y=side*(.22+stroke);
+      oar.rotation.z=side*(.12+stroke*.17);
+    }
+    sailor.rope.visible=!!sailor.berth;
+    if(sailor.berth){
+      const berth=sailor.berth;
+      const dockX=berth.stone?48.31:riverEdge(berth.side,berth.z)+berth.side*.30;
+      const dockZ=berth.stone?-16.38:berth.z-.68;
+      const line=sailor.rope.geometry.attributes.position;
+      line.setXYZ(0,dockX,landingFloor+.42,dockZ);
+      line.setXYZ(1,(dockX+sailor.x)/2,riverSurface+.41,(dockZ+sailor.z-.79)/2);
+      line.setXYZ(2,sailor.x+berth.side*.44,riverSurface+.41+bob,sailor.z-.79);
+      line.needsUpdate=true;
+    }
+  }
+
+  function drawSurvey(sheet,player=null){
+    const ctx=sheet.getContext('2d');
+    const width=1440,height=920;
+    sheet.width=width;
+    sheet.height=height;
+    const X=x=>252+x*6.35,Y=z=>113+(z-riverNorth)*4.79;
+    const font='"Microsoft YaHei","PingFang SC",sans-serif';
+    function label(text,x,y,size=20,color='#e8dac0',bold=false){
+      ctx.font=(bold?'700 ':'400 ')+size+'px '+font;
+      ctx.fillStyle=color;
+      ctx.textAlign='left';
+      ctx.textBaseline='middle';
+      ctx.fillText(text,x,y);
+    }
+    function poly(points,color){
+      ctx.beginPath();
+      points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));
+      ctx.closePath();
+      ctx.fillStyle=color;
+      ctx.fill();
+    }
+    function stroke(points,color,line=2,dash=[]){
+      ctx.beginPath();
+      points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));
+      ctx.lineWidth=line;
+      ctx.lineJoin='round';
+      ctx.lineCap='round';
+      ctx.strokeStyle=color;
+      ctx.setLineDash(dash);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    function route(points,color='#bda77c',weight=14){
+      const path=points.map(([x,z])=>[X(x),Y(z)]);
+      stroke(path,'#252820',weight+7);
+      stroke(path,color,weight);
+    }
+    function dot(x,y,color='#e7bb81',r=5){
+      ctx.beginPath();
+      ctx.arc(x,y,r,0,Math.PI*2);
+      ctx.fillStyle=color;
+      ctx.fill();
+    }
+    ctx.fillStyle='#eae4d4';
+    ctx.fillRect(0,0,width,height);
+    ctx.fillStyle='#1e2521';
+    ctx.fillRect(26,26,1388,674);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(27,27,1386,672);
+    ctx.clip();
+    const terrain=random(1143);
+    for(let y=56;y<708;y+=23){
+      const split=y%46===0?0:21;
+      for(let x=27-split;x<940;x+=43){
+        const green=35+Math.floor(terrain()*11);
+        ctx.fillStyle='rgb('+(green+1)+','+(green+3)+','+(green-5)+')';
+        ctx.fillRect(x+(terrain()>.55?3:1),y,39,20);
+      }
+    }
+    ctx.restore();
+    ctx.fillStyle='#222b25';
+    ctx.fillRect(940,27,473,672);
+
+    label('沉钟河 · 地下水路',52,61,34,'#f0e7d0',true);
+    label('北 ↑',843,64,20,'#c6bd9f',true);
+    const samples=[];
+    for(let z=riverNorth;z<=riverSouth;z++)samples.push(riverSection(z));
+    for(const side of [-1,1]){
+      const near=samples.map(s=>[X(side<0?s.west:s.east),Y(s.z)]);
+      const far=samples.map(s=>[X(bankEdge(side,s.z)),Y(s.z)]);
+      poly([...near,...far.slice().reverse()],'#969077');
+      stroke(far,'#c2b79b',1.4);
+    }
+    poly([...samples.map(s=>[X(s.west),Y(s.z)]),
+      ...samples.slice().reverse().map(s=>[X(s.east),Y(s.z)])],'#325953');
+    stroke(samples.map(s=>[X(s.west),Y(s.z)]),'#668b7b',1.6);
+    stroke(samples.map(s=>[X(s.east),Y(s.z)]),'#668b7b',1.6);
+    for(let z=riverNorth+12;z<riverSouth-5;z+=15){
+      const a=riverSection(z-2),b=riverSection(z+2);
+      const x=X(b.center),y=Y(b.z),angle=Math.atan2(y-Y(a.z),x-X(a.center));
+      stroke([[X(a.center),Y(a.z)],[x,y]],'#a6c6b7',1.8);
+      poly([[x,y],[x+8*Math.cos(angle+2.55),y+8*Math.sin(angle+2.55)],
+        [x+8*Math.cos(angle-2.55),y+8*Math.sin(angle-2.55)]],'#a6c6b7');
+    }
+    for(const z of [riverNorth,riverSouth]){
+      const bank=riverSection(z);
+      stroke([[X(bank.west),Y(z)],[X(bank.east),Y(z)]],z===riverNorth?'#c4d6cb':'#d9c293',4.5);
+      label(z===riverNorth?'上游入口':'下游出口',X(bank.east)+30,Y(z)+(z===riverNorth?6:-5),18,'#f0e4c6',true);
+    }
+
+    route(mainRoute);
+    route(riverRoute);
+    poly([[X(dockEntry),Y(dockPad.minZ)],[X(dockEnd),Y(dockPad.minZ)],
+      [X(dockEnd),Y(dockPad.maxZ)],[X(dockEntry),Y(dockPad.maxZ)]],'#aa9470');
+    route(drainRoute);
+    route([[northDoorway.x,-4.77],[northDoorway.x,-6.4],[tunnelMouth.x,-6.4],
+      [tunnelMouth.x,stairExitZ]],'#aa9773',11);
+    route([[northDoorway.x,-6.4],[stairs[0].x,-6.4],[stairs[0].x,stairStart-stairs[0].count*tread]],'#aa9773',9);
+    const canal=canalProfile.map(([x,z])=>[X(x),Y(z)]);
+    stroke(canal,'#253c34',23);
+    stroke(canal,'#73aa98',16);
+    stroke(canal,'#b0cbbc',1.5,[8,9]);
+    const serviceLine=[[serviceBank.minX,-51.80],[serviceBank.maxX,-51.80]];
+    stroke(serviceLine.map(([x,z])=>[X(x),Y(z)]),'#bba880',6);
+    label('城内排水干渠',75,209,18,'#b1cdc0',true);
+    stroke([[197,214],[216,Y(-55.72)]],'#a1c0b4',1.1);
+    const roomLeft=X(-5.8),roomRight=X(5.8),roomTop=Y(-4.83),roomBottom=Y(4.8);
+    ctx.fillStyle='#766049';
+    ctx.fillRect(roomLeft,roomTop,roomRight-roomLeft,roomBottom-roomTop);
+    ctx.lineWidth=2.5;
+    ctx.strokeStyle='#c0a579';
+    ctx.strokeRect(roomLeft,roomTop,roomRight-roomLeft,roomBottom-roomTop);
+    label('地下酒馆',roomLeft-15,roomBottom+18,21,'#f4dfb7',true);
+    label('居民街石阶',98,448,17,'#d9ceae');
+    stroke([[189,442],[X(stairs[0].x)-2,Y(-14.0)]],'#b7ac90',1.15);
+    dot(X(forkX),Y(forkZ),'#e5b173',6.5);
+    dot(X(serviceGate.x),Y(serviceGate.z),'#e5b173',6.5);
+    label('搬运道岔口',350,370,18,'#e5d7ba',true);
+    stroke([[430,377],[X(forkX),Y(forkZ)-9]],'#c0b195',1.15);
+    label('排水检修门',107,287,18,'#e5d7ba',true);
+    stroke([[216,285],[X(serviceGate.x)-8,Y(serviceGate.z)+5]],'#c0b195',1.15);
+    label('约 40 米',X(7.5),Y(-14)+21,15,'#dbcca7');
+    label('约 30 米',X(32.2),Y(dockZ)+21,15,'#dbcca7');
+    label('约 45 米',X(forkX)+12,Y(-35),15,'#dbcca7');
+    for(const berth of berths){
+      const edge=riverEdge(berth.side,berth.z);
+      const boat=berthAt(berth);
+      stroke([[X(boat.landX),Y(berth.z)],[X(boat.boatX),Y(berth.z)]],'#d2a56e',5);
+      dot(X(edge),Y(berth.z),'#ffdda0',5.5);
+    }
+    label('系船石台',440,475,17,'#f0daa8',true);
+    stroke([[521,473],[547,456],[X(49.72)-4,Y(dockZ)+7]],'#c9b487',1.15);
+    label('对岸栈台',X(62)+38,Y(dockZ)+3,17,'#e5d7ba');
+    label('西岸走道',X(43)+7,Y(-1),16,'#e5d7ba');
+    label('东岸走道',X(68)+32,Y(5),16,'#e5d7ba');
+    for(const [i,alcove] of alcoves.entries()){
+      const {side,z,halfLength}=alcove;
+      const box=[];
+      for(let q=z-halfLength;q<=z+halfLength+.4;q+=.7)box.push([X(bankEdge(side,q)),Y(q)]);
+      for(let q=z+halfLength;q>=z-halfLength-.4;q-=.7){
+        box.push([X(riverEdge(side,q)+side*(bankWidth+.55)),Y(q)]);
+      }
+      poly(box,'#6c6453');
+      stroke([...box,box[0]],'#efd3a0',1.8,[5,4]);
+      const anchor=X(bankEdge(side,z));
+      const tx=i===0?anchor+12:anchor-139;
+      label(alcove.name,tx,Y(z)-3,17,'#e9cea0',true);
+    }
+    if(player){
+      const px=X(player.x),py=Y(player.z);
+      dot(px,py,'#242a23',9.5);
+      dot(px,py,'#ffdc83',6.3);
+    }
+
+    stroke([[75,644],[75+20*6.35,644]],'#d3c7a7',2);
+    stroke([[75,639],[75,649]],'#d3c7a7',2);
+    stroke([[75+20*6.35,639],[75+20*6.35,649]],'#d3c7a7',2);
+    label('20 米（东西向）',75,667,15,'#cbbf9d');
+
+    label('河岸与通行',977,83,26,'#eee4cb',true);
+    label('两岸走道沿河连续布置',977,132,19,'#e1d7bd');
+    label('四处栈台可上下船',977,173,19,'#e1d7bd');
+    label('水流由北向南',977,214,19,'#e1d7bd');
+    stroke([[976,257],[1377,257]],'#50574a',1.4);
+    const legend=[['#325953','地下河'],['#969077','沿河走道'],['#bda77c','搬运道与支路'],
+      ['#73aa98','排水干渠'],['#ffdda0','可上下船'],['#6c6453','预留空间']];
+    legend.forEach(([color,name],i)=>{
+      const y=296+i*43;
+      if(i===4)dot(992,y,color,6.5);
+      else{
+        ctx.fillStyle=color;
+        ctx.fillRect(980,y-6,25,12);
+        if(i===5)stroke([[979,y-7],[1006,y-7],[1006,y+7],[979,y+7],[979,y-7]],'#e4c99a',1.3,[3,3]);
+      }
+      label(name,1025,y,18,'#ddd2b7');
+    });
+    stroke([[976,570],[1377,570]],'#50574a',1.4);
+    label('东岸侧室、西岸支路各留出一段空间。',977,611,17,'#d1c3a5');
+    label('上、下游洞口各有微光。',977,647,17,'#d1c3a5');
+
+    label('高程关系',53,733,26,'#252923',true);
+    label('以地下河平水面为零点',1140,733,16,'#50584d');
+    const levels=[['地面 +7 米',774],['酒馆 +3 米',806],['石台 +1 米',844],['水面 ±0 米',880]];
+    for(const [text,y] of levels){
+      label(text,56,y,16,'#454838');
+      stroke([[209,y],[1382,y]],'#beb49a',1,[6,6]);
+    }
+    stroke([[215,774],[289,774],[340,806],[585,806],[637,815],[744,815],[807,844],[986,844]],'#705d43',5);
+    stroke([[982,844],[1176,844],[1241,844]],'#9c5947',2,[9,6]);
+    stroke([[947,810],[1016,820],[1091,842],[1181,879]],'#588372',3.5);
+    ctx.fillStyle='#91ab9a';
+    ctx.fillRect(1180,880,202,13);
+    label('干渠向入河口下坡',1027,802,16,'#526c5d');
+    label('高水警戒线',1265,843,16,'#8b5346');
   }
 
   function backKitchen(){
@@ -2071,6 +2614,28 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const aim=V(0,0,0);
   const byId=id=>document.getElementById(id);
   const cursor=byId('reticle');
+  const mapDialog=byId('map-dialog');
+  const closeMap=byId('map-close');
+  const mapSheet=byId('map-sheet');
+
+  function toggleMap(){
+    const opening=mapDialog.hidden;
+    mapDialog.hidden=!opening;
+    cursor.hidden=opening;
+    prompt.hidden=true;
+    walking.clear();
+    dragging=false;
+    if(opening){
+      if(document.pointerLockElement)document.exitPointerLock?.();
+      const sailor=underground.sailor;
+      drawSurvey(mapSheet,sailor.riding?sailor:eye);
+      closeMap.focus();
+    }else{
+      closeMap.blur();
+      lock();
+    }
+  }
+  closeMap.addEventListener('click',toggleMap);
 
   function caption(text){
     status.textContent=text;
@@ -2085,18 +2650,18 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     started=true;
     panel.hidden=true;
     cursor.hidden=false;
-    caption('WASD 走动 · 鼠标转向 · E 交互 · Esc 释放鼠标');
+    caption('WASD 走动 · 鼠标转向 · E 交互 · M 地图');
     lock();
   }
   start.addEventListener('click',startGame);
   root.addEventListener('pointerdown',event=>{
-    if(!started||open||event.target!==renderer.domElement) return;
+    if(!started||open||!mapDialog.hidden||event.target!==renderer.domElement) return;
     dragging=true;
     lock();
   });
   window.addEventListener('pointerup',()=>dragging=false);
   window.addEventListener('mousemove',event=>{
-    if(started && !open && (document.pointerLockElement===renderer.domElement||dragging)){
+    if(started&&!open&&mapDialog.hidden&&(document.pointerLockElement===renderer.domElement||dragging)){
       yaw-=event.movementX*.0022;
       pitch=clamp(pitch-event.movementY*.0022,-1.42,1.42);
     }
@@ -2109,10 +2674,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
   function getFloor(x,z){
     const stair=stairAt(x,z);
-    if(!stair)return undergroundAreas.some(rect=>inRect(rect,x,z))?undergroundHeight(x,z):0;
+    if(!stair)return onUndergroundFloor(x,z)?undergroundHeight(x,z):0;
     return Math.min(stair.count,1+Math.floor((stairStart-z)/tread))*stair.rise;
   }
   function walkable(x,z){
+    if(x>40)return undergroundWalkable(x,z);
     if(z>=-4.51&&z<=4.53)return x>-5.55&&x<5.55;
     if(z>4.53){
       if(z<5.10){
@@ -2143,7 +2709,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       if(item.disabled)continue;
       aim.copy(item.point).sub(camera.position);
       const distance=aim.length();
-      if(distance>3.0||distance<.13)continue;
+      if(distance>(item.range??3.0)||distance<.13)continue;
       const score=aim.normalize().dot(direction);
       const limit=1-Math.min(.170,.83*item.radius*item.radius/(distance*distance));
       if(score>Math.max(best,limit)){
@@ -2185,13 +2751,20 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     byId('leave').focus();
   });
   window.addEventListener('keydown',event=>{
-    if(event.code==='Escape'&&open){ finishTalk();return; }
+    if(event.code==='Escape'&&open){finishTalk();return;}
     if(!started||open)return;
+    if(!event.repeat&&(event.code==='KeyM'||(event.code==='Escape'&&!mapDialog.hidden))){
+      event.preventDefault();
+      toggleMap();
+      return;
+    }
+    if(!mapDialog.hidden)return;
     const key=arrows[event.code]||event.code;
     if(['KeyW','KeyA','KeyS','KeyD'].includes(key)){
       walking.add(key);event.preventDefault();
     }
     if(event.code==='KeyE'&&!event.repeat){
+      if(underground.sailor.riding){leaveBoat();return;}
       const item=currentInteraction();
       if(item?.kind==='keeper')beginTalk();
       if(item?.kind==='north-door'){
@@ -2224,7 +2797,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     last=time;
     const f=Number(walking.has('KeyW'))-Number(walking.has('KeyS'));
     const s=Number(walking.has('KeyD'))-Number(walking.has('KeyA'));
-    if(started&&!open&&(f||s)){
+    const sailor=underground.sailor;
+    const active=started&&!open&&mapDialog.hidden;
+    if(active&&sailor.riding){
+      sailBoat(dt,f,s);
+    }else if(active&&(f||s)){
       const steps=Math.max(1,Math.ceil(dt/.025));
       const step=dt*2.06/(Math.hypot(f,s)*steps);
       const dx=(-Math.sin(yaw)*f+Math.cos(yaw)*s)*step;
@@ -2244,16 +2821,29 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       panel.position.x=side*(.379+.286*curtain.amount);
       panel.scale.x=1-.756*curtain.amount;
     }
-    ground+=(getFloor(eye.x,eye.z)-ground)*transition;
-    const bob=started&&!open&&(f||s)?Math.sin(guess)*.018:0;
-    camera.position.set(eye.x,eye.y+ground+bob,eye.z);
+    if(sailor.riding){
+      const seatBack=.41;
+      const bob=Math.sin(time*.0013)*.025;
+      camera.position.set(sailor.x+Math.sin(sailor.heading)*seatBack,
+        riverSurface+1.20+bob,sailor.z+Math.cos(sailor.heading)*seatBack);
+    }else{
+      ground+=(getFloor(eye.x,eye.z)-ground)*transition;
+      const bob=active&&(f||s)?Math.sin(guess)*.018:0;
+      camera.position.set(eye.x,eye.y+ground+bob,eye.z);
+    }
     camera.rotation.x=pitch;
     camera.rotation.y=yaw;
     camera.updateMatrixWorld();
-    if(started&&!open){
-      const looked=currentInteraction();
-      prompt.textContent=looked?'E　'+looked.name:'';
-      prompt.hidden=!looked;
+    if(active){
+      if(sailor.riding){
+        const berth=nearbyBerth();
+        prompt.textContent=berth?'E　上岸 · '+berth.name:'';
+        prompt.hidden=!berth;
+      }else{
+        const looked=currentInteraction();
+        prompt.textContent=looked?'E　'+looked.name:'';
+        prompt.hidden=!looked;
+      }
     }
     noteTime-=dt;
     if(noteTime<0 && status.textContent)status.textContent='';
