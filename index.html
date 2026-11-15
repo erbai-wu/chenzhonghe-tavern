@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,height=device-height,initial-scale=1">
-<title>沉钟河 · 地下酒馆</title>
+<title>地下酒馆</title>
 <style>
 :root{color-scheme:dark;font-family:Georgia,"Microsoft YaHei","PingFang SC",serif;--ink:#1b140b;--paper:#e9d8b7;--muted:#bfab86}
 *{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#160f09}
@@ -35,18 +35,15 @@ button:hover,button:focus-visible{background:#60432a;outline:1px solid #edbc74;o
 #map-scroll{overflow:auto;max-height:calc(100dvh - 78px);touch-action:pan-x pan-y;box-shadow:0 10px 42px #0008}
 #map-page{position:relative;width:100%;min-width:820px}
 #map-sheet{position:static!important;display:block;width:100%!important;height:auto!important;image-rendering:auto;touch-action:pan-x pan-y}
-#map-labels{position:absolute;inset:0;pointer-events:none}
-#map-labels button{position:absolute;pointer-events:auto;touch-action:pan-x pan-y;border:0;background:none;padding:0}
-#map-labels button:hover,#map-labels button:focus-visible{background:#c0a8791c;outline:1px solid #dbc49d;outline-offset:0}
-#map-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px}
-#map-annotation{margin:0;color:var(--paper);font-size:14px;line-height:1.4}
+#map-toolbar{display:flex;justify-content:flex-end}
+#game:has(#map-dialog:not([hidden])) #status{visibility:hidden}
 #map-close{flex:none;font-size:14px;padding:5px 11px}
 </style>
 </head>
 <body>
 <main id="game">
 <section id="welcome" aria-label="开始游戏">
-  <h1>沉钟河 · 地下酒馆</h1>
+  <h1>地下酒馆</h1>
   <button id="start">进入酒馆</button>
   <p>WASD 走动 · 鼠标转向 · E 交互 · M 地图 · Esc 释放鼠标</p>
 </section>
@@ -70,11 +67,9 @@ button:hover,button:focus-visible{background:#60432a;outline:1px solid #edbc74;o
     <div id="map-scroll" tabindex="0" aria-label="滚动查看地图">
       <div id="map-page">
         <canvas id="map-sheet" role="img" aria-label="地下酒馆与水路的平面及高程图"></canvas>
-        <div id="map-labels" role="group" aria-label="地图标注释义"></div>
       </div>
     </div>
     <div id="map-toolbar">
-      <p id="map-annotation" role="status">指向或选中地图文字查看中文</p>
       <button id="map-close">关闭地图 · M / Esc</button>
     </div>
   </div>
@@ -689,22 +684,22 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const lairApproach={minX:innerEastBank-.02,maxX:innerEastBank+.02,
     minZ:lairEntrance.minZ-2.24,maxZ:lairEntrance.maxZ+2.12};
   const lairPassages=[lairEntrance,lairElbow,lairThroat];
-  const dragonExit={minX:90.10,maxX:99.20,endZ:-39.75};
-  const dragonExitZ=x=>-21.58-(x-89.64)*.54/11.20;
+  const dragonExit={minX:85.50,maxX:103.80,endZ:-39.75};
+  const dragonExitZ=x=>-21.50-(x-dragonExit.minX)*.58/(dragonExit.maxX-dragonExit.minX);
   const onDragonExitEdge=(x,z)=>x>=dragonExit.minX-.001&&x<=dragonExit.maxX+.001
     &&Math.abs(z-dragonExitZ(x))<.005;
   function dragonExitProfile(x){
     const u=(x-dragonExit.minX)/(dragonExit.maxX-dragonExit.minX);
     const arch=Math.pow(Math.max(0,Math.sin(Math.PI*u)),.40);
     const bottom=.43+.08*Math.cos(u*9.28);
-    return {bottom,top:bottom+.63+arch*(3.56+.18*Math.sin(u*12.4))};
+    return {bottom,top:bottom+.84+arch*(7.20+.25*Math.sin(u*12.4))};
   }
   const lairOutline=[
     [115.34,-17.70],[115.34,lairThroat.minZ],[115.34,lairThroat.maxZ],[115.34,.13],
     [112.96,4.9],[106.54,9.36],[93.84,11.82],[80.74,11.33],[72.41,8.42],
     [68.29,1.65],[68.34,-8.0],[72.34,-15.5],[79.74,-19.1],
-    [89.64,-21.58],[dragonExit.minX,dragonExitZ(dragonExit.minX)],
-    [dragonExit.maxX,dragonExitZ(dragonExit.maxX)],[100.84,-22.12],[111.54,-21.23]
+    [84.60,-21.04],[dragonExit.minX,dragonExitZ(dragonExit.minX)],
+    [dragonExit.maxX,dragonExitZ(dragonExit.maxX)],[104.85,-22.12],[111.54,-21.23]
   ];
   const oreEntrance={minX:138.1,maxX:143.55,minZ:-56.60,maxZ:-52.40};
   const oreChamber={minX:143.50,maxX:164.20,minZ:-63.0,maxZ:-45.0};
@@ -1428,6 +1423,55 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return stoneFacetMesh(parent,faces,material);
   }
 
+  function tailMotion(tail,rings){
+    const meshes=tail.children.map(mesh=>{
+      const {geometry}=mesh;
+      const position=geometry.getAttribute('position').setUsage(THREE.DynamicDrawUsage);
+      const rest=position.array.slice();
+      const weights=new Float32Array(position.count);
+      const offsets=new Float32Array(position.count*2);
+      for(let i=0;i<position.count;i++){
+        const x=rest[i*3];
+        const u=THREE.MathUtils.smoothstep(x,1.78,4.53);
+        weights[i]=u*u;
+        const index=rings.findIndex(([px])=>px>=x);
+        const next=index<0?rings.length-1:Math.max(1,index);
+        const [ax,ay,az]=rings[next-1],[bx,by,bz]=rings[next];
+        const mix=clamp((x-ax)/(bx-ax),0,1);
+        offsets[i*2]=rest[i*3+1]-THREE.MathUtils.lerp(ay,by,mix);
+        offsets[i*2+1]=rest[i*3+2]-THREE.MathUtils.lerp(az,bz,mix);
+      }
+      geometry.computeBoundingSphere();
+      geometry.boundingSphere.radius+=.61;
+      geometry.getAttribute('normal').setUsage(THREE.DynamicDrawUsage);
+      return {geometry,position,rest,weights,offsets};
+    });
+    return time=>{
+      const seconds=time*.001;
+      // Vary the rate smoothly while sending the bend towards the tip.
+      const phase=seconds*1.86+1.58*Math.sin(seconds*.78)+.74*Math.sin(seconds*.39+1.25);
+      for(const {geometry,position,rest,weights,offsets} of meshes){
+        for(let i=0;i<position.count;i++){
+          const weight=weights[i];
+          if(weight===0)continue;
+          const x=rest[i*3],wave=phase-(x-1.78)*1.47;
+          const curve=.354*Math.sin(wave)+.063*Math.sin(wave*2+.52);
+          const rise=weight*(.047+.044*Math.sin(wave-.72));
+          const roll=weight*.35*Math.sin(wave+.61);
+          const c=Math.cos(roll)-1,s=Math.sin(roll);
+          const dy=offsets[i*2],dz=offsets[i*2+1];
+          position.setXYZ(i,x-weight*curve*curve*.48,
+            rest[i*3+1]+rise+dy*c-dz*s,
+            rest[i*3+2]+weight*curve+dy*s+dz*c);
+        }
+        position.needsUpdate=true;
+        geometry.computeVertexNormals();
+      }
+    };
+  }
+
+
+
   function dragonGroundPoint(dragon,x,z){
     const dx=x-dragon.position.x,dz=z-dragon.position.z;
     const c=Math.cos(dragon.rotation.y),s=Math.sin(dragon.rotation.y);
@@ -1435,8 +1479,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
 
   function sleepingWyvern(parent){
-    const root=group(parent,93.5,landingFloor+.14,-6.4,Math.PI+.23);
-    const size=1.66;
+    const root=group(parent,93.5,landingFloor+.065,-6.4,Math.PI+.23);
+    const size=3.32;
     root.scale.setScalar(size);
     root.name='sleeping-black-wyvern';
     const skin=pixelLit(new THREE.MeshStandardMaterial({vertexColors:true,roughness:.92}));
@@ -1454,11 +1498,14 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       [.17,.90,.008,.70,.86],[.80,.78,.04,.61,.77],[1.33,.62,.07,.49,.62],
       [1.65,.47,.09,.32,.41]
     ],13,skin,charcoal,731,belly);
-    dragonTube(root,[
+    const tail=group(root);
+    tail.name='dragon-tail';
+    const tailRings=[
       [1.38,.57,.09,.44,.53],[1.76,.42,.17,.35,.44],[2.17,.33,.34,.285,.34],
       [2.68,.26,.56,.216,.29],[3.22,.200,.71,.163,.220],[3.72,.158,.74,.114,.158],
       [4.06,.128,.62,.076,.11],[4.34,.121,.43,.039,.068],[4.53,.115,.22,.004,.008]
-    ],10,skin,charcoal,430,belly);
+    ];
+    dragonTube(tail,tailRings,10,skin,charcoal,430,belly);
 
     const head=group(root);
     dragonTube(head,[
@@ -1555,12 +1602,13 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       [3.60,.288,.744,.13],[3.94,.237,.675,.10],[4.23,.191,.527,.077]
     ];
     for(const [i,[x,y,z,h]] of plates.entries()){
-      dragonTube(i<11?chest:root,[
+      dragonTube(i<11?chest:tail,[
         [x-h*.44,y-.05,z,h*.19,h*.29],[x+.035,y+.027,z,h*.20,h*.25],
         [x+h*.47,y+h*.61,z+.012,h*.097,h*.104],[x+h*.94,y+h*.87,z+.015,.005,.008]
       ],6,skin,crown,912+i);
     }
 
+    const flexTail=tailMotion(tail,tailRings);
     const wings=[];
     for(const side of [-1,1]){
       const shoulder=[-1.30,1.13,.54],elbow=[-.72,.81,.98],wrist=[-2.08,.21,1.30];
@@ -1637,21 +1685,21 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 
     collider(root,.12,.04,3.5*size,2.12*size);
     collider(root,-2.96,-.17,2.40*size,.85*size);
-    const tail=group(root,2.76,0,.50,-.12);
-    collider(tail,0,0,2.37*size,.66*size);
+    const tailGuard=group(root,2.76,0,.50,-.12);
+    collider(tailGuard,0,0,2.37*size,.66*size);
     for(const side of [-1,1]){
       collider(root,-.03,side*1.14,4.60*size,.49*size);
     }
     root.updateWorldMatrix(true,false);
     interactive.push({name:"观察卧睡的黑龙",kind:'sleeping-dragon',point:root.localToWorld(V(-3.83,.47,-.26)),
-      radius:1.12,range:5.25});
+      radius:1.66,range:6.9});
     const spine=[
       [-4.10,-.225,1.19],[-2.48,-.14,1.50],[-1.28,.02,2.25],
       [.91,.045,2.16],[2.88,.58,1.30],[4.50,.22,1.12]
     ];
     function keepsDistance(x,z){
-      if(Math.abs(x-root.position.x)>10.1||Math.abs(z-root.position.z)>7.1)return false;
       const [px,pz]=dragonGroundPoint(root,x,z);
+      if(px<-5.45||px>5.79||Math.abs(pz)>2.64)return false;
       for(let i=1;i<spine.length;i++){
         const [ax,az,ar]=spine[i-1],[bx,bz,br]=spine[i],dx=bx-ax,dz=bz-az;
         const t=clamp(((px-ax)*dx+(pz-az)*dz)/(dx*dx+dz*dz),0,1);
@@ -1659,7 +1707,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       }
       return false;
     }
-    return {root,chest,head,wings,keepsDistance};
+    return {root,chest,head,wings,flexTail,keepsDistance};
   }
 
   let caveAudio=null;
@@ -1721,7 +1769,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const listening=started&&!underground.sailor.riding&&inDragonLair(eye.x,eye.z);
     const mouth=underground.lair.air.muzzle;
     const dx=mouth.x-eye.x,dz=mouth.z-eye.z,distance=Math.hypot(dx,dz);
-    const proximity=1-THREE.MathUtils.smoothstep(distance,2.0,22.5);
+    const proximity=1-THREE.MathUtils.smoothstep(distance,2.0,15.8);
     const level=listening?(.009+.29*Math.pow(proximity,1.65)):0;
     const pulse=.105+.895*Math.pow(swell,1.65);
     const tremor=.94+.036*Math.sin(time*.014)+.024*Math.sin(time*.026);
@@ -1909,7 +1957,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     stoneFacetMesh(parent,faces,stone).name='north-rock-flight-passage';
 
     // The pale sky is at the far end of the rising passage, behind its outer rock lip.
-    const sky=new THREE.Mesh(new THREE.PlaneGeometry(26,19),new THREE.ShaderMaterial({
+    const sky=new THREE.Mesh(new THREE.PlaneGeometry(38,25),new THREE.ShaderMaterial({
       vertexShader:`
         varying vec2 skyUV;
         void main(){skyUV=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}
@@ -1972,8 +2020,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       return [[x,landingFloor,z],
         [x+vx*(.30+rng()),-.86+rng()*.45,z+vz*(.30+rng())],
         [x-vx*(.36+rng()),.38+rng()*1.0,z-vz*(.36+rng())],
-        [x+vx*(1.6+rng()),2.53+rng()*.65,z+vz*(1.6+rng())],
-        [x+vx*(2.6+rng()),4.82+rng()*.54,z+vz*(2.6+rng())]];
+        [x+vx*(1.6+rng()),4.30+rng()*.92,z+vz*(1.6+rng())],
+        [x+vx*(2.6+rng()),8.90+rng()*.61,z+vz*(2.6+rng())]];
     });
     for(let i=0;i<rim.length;i++){
       const j=(i+1)%rim.length;
@@ -2004,7 +2052,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       roofRings.push(rim.map(([x,z])=>{
         const px=93.4+(x-93.4)*radius+(rng()-.5)*.74;
         const pz=-6.5+(z+6.5)*radius+(rng()-.5)*.64;
-        const y=4.88+i*.24+Math.sin(px*.38+pz*.56)*.19+rng()*.31;
+        const y=9.12+i*.24+Math.sin(px*.38+pz*.56)*.19+rng()*.31;
         return [px,y,pz];
       }));
     }
@@ -2020,7 +2068,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     const cap=roofRings.at(-1);
     for(let i=0;i<cap.length;i++)wall.push({
-      points:[cap[i],cap[(i+1)%cap.length],[93.20,5.58,-6.57]],color:roofTone()
+      points:[cap[i],cap[(i+1)%cap.length],[93.20,9.83,-6.57]],color:roofTone()
     });
     const shell=stoneFacetMesh(parent,wall,stone);
     shell.updateWorldMatrix(true,false);
@@ -2045,11 +2093,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     for(const [x,z,sx,sy,sz] of [[112.65,-14.51,1.31,1.52,1.0],[112.6,-6.46,1.15,1.85,.80],
       [83.9,-14.33,1.53,1.28,1.01],[105.9,-3.18,1.40,.65,1.41],
-      [97.43,8.6,1.61,.93,1.09],[88.55,7.5,.88,.35,.66],[80.7,1.34,.98,1.66,1.11]]){
+      [97.43,8.6,1.61,.93,1.09],[88.55,7.5,.88,.35,.66],[75.65,3.07,.98,1.66,1.11]]){
       const rock=lairRock(parent,x,landingFloor,z,sx,sy,sz,Math.round(x*109),stone);
       collider(rock,0,0,sx*1.27,sz*1.27);
     }
-    const shelf=group(parent,99.6,landingFloor,-14.7);
+    const shelf=group(parent,99.6,landingFloor,-17.12);
     for(let i=0;i<9;i++){
       const x=i*1.17-.9,z=(rng()-.5)*1.45;
       lairRock(shelf,x,0,z,1.2+rng()*.44,1.49+rng()*.8,.69+rng()*.41,8950+i,stone);
@@ -2091,14 +2139,15 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       faces.push({points:[a,c,b],color:colored(base,b[0],b[2])});
       if(i>1)faces.push({points:[a,d,c],color:colored(base,d[0],d[2])});
     }
-    for(let i=0;i<9400;i++){
+    const stemScale=1.66/root.scale.x;
+    for(let i=0;i<15800;i++){
       const a=rng()*Math.PI*2;
-      const r=i<8000?Math.sqrt(rng()):.76+rng()*.31;
+      const r=i<13400?Math.sqrt(rng()):.76+rng()*.31;
       const [x,y,z]=point(a,r);
       const flatness=THREE.MathUtils.smoothstep(Math.abs(z-center(x)),.15,1.66);
       const dir= a+(rng()-.5)*(1.2+flatness*3.0);
-      const len=(.07+rng()*.26)*(.66+flatness*.34);
-      const dx=Math.cos(dir),dz=Math.sin(dir),w=.003+rng()*.009;
+      const len=(.07+rng()*.26)*(.66+flatness*.34)*stemScale;
+      const dx=Math.cos(dir),dz=Math.sin(dir),w=(.003+rng()*.009)*stemScale;
       const xa=x-dx*len*.44,za=z-dz*len*.44,xb=x+dx*len*.56,zb=z+dz*len*.56;
       const start=[xa,height(xa,za)+.006,za],end=[xb,height(xb,zb)+.012+rng()*.033,zb];
       const bend=[x,y+.012+rng()*.044*flatness,z];
@@ -2272,19 +2321,19 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       cavern.add(lamp);
       underground.lamps.push(lamp);
     }
-    halo(0xa9b9bb,101.2,1.12,-10.05,30,16);
-    halo(0xa68d78,94.1,.36,-11.1,19,14);
-    halo(0x849caa,86.8,1.05,-4.3,26,17);
+    halo(0xa9b9bb,109.25,1.44,-12.10,38,19);
+    halo(0xa68d78,94.8,1.56,-13.90,31,18);
+    halo(0x849caa,82.8,1.44,-1.4,34,19);
     halo(0xa2b5c2,96.20,5.14,-28.43,45,13);
 
     for(const [x,z,size,seed,color,lit] of [
-      [103.8,-9.9,1.24,2507,0x6eaaa7,true],
-      [100.9,-1.95,.78,883,0x6eaaa7,false],
+      [109.25,-14.3,1.24,2507,0x6eaaa7,true],
+      [102.1,.3,.78,883,0x6eaaa7,false],
       [88.0,-12.66,.98,907,0x8895cb,true],
       [90.55,-13.63,.56,450,0x8895cb,false],
-      [83.04,-3.02,1.31,808,0x6eaaa7,true],
-      [84.65,-1.89,.69,153,0x6eaaa7,false],
-      [109.48,-13.42,.44,230,0x8895cb,true]
+      [81,-.52,1.31,808,0x6eaaa7,true],
+      [78.75,-1.55,.69,153,0x6eaaa7,false],
+      [112.55,-7.68,.44,230,0x8895cb,true]
     ])dragonCrystalCluster(cavern,stone,x,z,size,seed,color,lit);
 
     const ledges=quadBatch();
@@ -2336,6 +2385,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     caveSound(swell,time);
     dragon.chest.scale.set(1,1+swell*.029,1+swell*.039);
     dragon.head.position.y=swell*.012;
+    if(camera.position.distanceToSquared(dragon.root.position)<42*42)dragon.flexTail(time);
     for(const {side,wing} of dragon.wings){
       wing.rotation.x=side*(swell*.011);
     }
@@ -2643,23 +2693,18 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
   }
 
-  const mapText=(en,zh)=>({en,zh});
   function drawSurvey(sheet,player=null){
     const ctx=sheet.getContext('2d');
     sheet.width=1440;
     sheet.height=920;
     const X=x=>48+(x+20)*4.66,Y=z=>108+(z+108)*3.52;
     const font='"Microsoft YaHei","PingFang SC",sans-serif';
-    const labels=[];
-    function label({en,zh},x,y,size=20,color='#e8dac0',bold=false,align='left',maxWidth=410){
+    function label(text,x,y,size=20,color='#e8dac0',bold=false,align='left',maxWidth=410){
       ctx.fillStyle=color;
       ctx.textAlign=align;
       ctx.textBaseline='middle';
       ctx.font=(bold?'700 ':'400 ')+size+'px '+font;
-      ctx.fillText(en,x,y,maxWidth);
-      const width=Math.min(ctx.measureText(en).width,maxWidth);
-      const left=x-(align==='center'?width/2:align==='right'?width:0);
-      labels.push({zh,x:left-4,y:y-size*.54-3,width:width+8,height:size*1.08+6});
+      ctx.fillText(text,x,y,maxWidth);
     }
     function polygon(points){
       ctx.beginPath();
@@ -2717,8 +2762,12 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     ctx.restore();
     ctx.fillStyle='#222b25';
     ctx.fillRect(961,27,452,672);
-    label(mapText("Sunken Bell River · Underground Waterways","沉钟河 · 地下水路"),52,62,32,'#f0e7d0',true,'left',780);
-    label(mapText("N ↑","北 ↑"),885,63,20,'#c6bd9f',true);
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.font='italic bold 50px "Palatino Linotype","Book Antiqua",Georgia,serif';
+    ctx.fillStyle='#f0e7d0';
+    ctx.fillText('Map',493,63);
+    label("北 ↑",885,63,20,'#c6bd9f',true);
     for(const rectData of riverBankRects)rect(rectData,'#a59a7e');
     for(const rectData of riverWetRects)rect(rectData,'#345e57');
 
@@ -2730,7 +2779,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     for(const [x,z,up] of [[riverColumns[0],-108,true],[riverColumns[1],45,false]]){
       stroke([[X(x-riverHalfWidth),Y(z)],[X(x+riverHalfWidth),Y(z)]],up?'#c4d6cb':'#d9c293',3.3);
-      label(up?mapText("Upstream Entrance","上游入口"):mapText("Downstream Exit","下游出口"),X(x)+38,Y(z)+(up?0:7),15,'#e9dec1',true);
+      label(up?"上游入口":"下游出口",X(x)+38,Y(z)+(up?0:7),15,'#e9dec1',true);
     }
 
     const cave=lairOutline.map(([x,z])=>[X(x),Y(z)]);
@@ -2743,18 +2792,18 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       stroke([[x,Y(-23)],[x-27,Y(13)]],'#694e4a',1.2);
     }
     ctx.restore();
-    label(mapText("Black Dragon Lair","黑龙巢穴"),X(93.8),Y(-7.8),25,'#f5e1c8',true,'center');
+    label("黑龙巢穴",X(93.8),Y(-7.8),25,'#f5e1c8',true,'center');
     const exitX=(dragonExit.minX+dragonExit.maxX)/2;
     stroke([[X(exitX),Y(dragonExitZ(exitX))],[X(exitX+2.84),Y(dragonExit.endZ)]],
       '#a5afb0',1.65,[4,4]);
     dot(X(exitX+2.84),Y(dragonExit.endZ),'#b8c2bc',3.5);
-    label(mapText("High Rock Passage","岩壁高位出入口"),X(exitX+2.84),Y(dragonExit.endZ)-25,13,'#ced6c9',false,'center');
+    label("岩壁高位出入口",X(exitX+2.84),Y(dragonExit.endZ)-25,13,'#ced6c9',false,'center');
     rect(oreEntrance,'#8c846c');
     rect(oreChamber,'#4e5a53');
     const ore=[[X(oreChamber.minX),Y(oreChamber.minZ)],[X(oreChamber.maxX),Y(oreChamber.minZ)],
       [X(oreChamber.maxX),Y(oreChamber.maxZ)],[X(oreChamber.minX),Y(oreChamber.maxZ)]];
     stroke([...ore,ore[0]],'#bcccba',1.65,[5,4]);
-    label(mapText("Future Mine Site","矿洞预留区"),X(154),Y(-55.5),13,'#dce8d6',true,'center',89);
+    label("矿洞预留区",X(154),Y(-55.5),13,'#dce8d6',true,'center',89);
 
     route(mainRoute);
     route(riverRoute);
@@ -2767,28 +2816,28 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     stroke(canal,'#76ab99',10.7);
     stroke(canal,'#b4cbbd',1.25,[8,8]);
     stroke([[X(serviceBank.minX),Y(-51.8)],[X(serviceBank.maxX),Y(-51.8)]],'#b9a785',4.6);
-    label(mapText("City Main Drain","城内排水干渠"),64,Y(-62),15,'#b1cdc0',true);
+    label("城内排水干渠",64,Y(-62),15,'#b1cdc0',true);
     rect({minX:-5.8,maxX:5.8,minZ:-4.83,maxZ:4.8},'#766049');
     ctx.strokeStyle='#c0a579';
     ctx.lineWidth=1.5;
     ctx.strokeRect(X(-5.8),Y(-4.83),X(5.8)-X(-5.8),Y(4.8)-Y(-4.83));
-    label(mapText("Underground Tavern","地下酒馆"),X(-8),Y(9.6),17,'#f4dfb7',true);
-    label(mapText("West Quarter Steps","居民街石阶"),55,Y(-23.8),14,'#cec4a7');
+    label("地下酒馆",X(-8),Y(9.6),17,'#f4dfb7',true);
+    label("居民街石阶",55,Y(-23.8),14,'#cec4a7');
     stroke([[145,Y(-18.2)],[X(stairs[0].x)-5,Y(-14)]],'#ac9e80',1);
     dot(X(forkX),Y(forkZ),'#e5b173',4.5);
     dot(X(serviceGate.x),Y(serviceGate.z),'#e5b173',4.5);
-    label(mapText("Passage Fork","搬运道岔口"),X(forkX)+10,Y(-29.4),14,'#e5d7ba',true);
-    label(mapText("Drainage Gate","排水检修门"),69,Y(-47.2),15,'#e5d7ba',true);
+    label("搬运道岔口",X(forkX)+10,Y(-29.4),14,'#e5d7ba',true);
+    label("排水检修门",69,Y(-47.2),15,'#e5d7ba',true);
     stroke([[155,Y(-43.0)],[X(serviceGate.x)-6,Y(serviceGate.z)+3]],'#c0b195',1);
-    label(mapText("~40 m","约 40 米"),X(8),Y(-11.3)+1,13,'#dbcca7');
-    label(mapText("~30 m","约 30 米"),X(31),Y(-10.8)+1,13,'#dbcca7');
-    label(mapText("~45 m","约 45 米"),X(forkX)+8,Y(-40.2)-5,13,'#dbcca7');
+    label("约 40 米",X(8),Y(-11.3)+1,13,'#dbcca7');
+    label("约 30 米",X(31),Y(-10.8)+1,13,'#dbcca7');
+    label("约 45 米",X(forkX)+8,Y(-40.2)-5,13,'#dbcca7');
     for(const berth of berths){
       const {boat,land,section}=berthAt(berth);
       stroke([[X(land.x),Y(land.z)],[X(boat.x),Y(boat.z)]],'#d2a56e',4);
       const p=riverPoint(section,berth.side*riverHalfWidth);
       dot(X(p.x),Y(p.z),'#ffdda0',4.8);
-      if(berth.stone)label(mapText("Stone Landing","系船石台"),X(p.x)-12,Y(p.z)+38,14,'#f0daa8',true,'right');
+      if(berth.stone)label("系船石台",X(p.x)-12,Y(p.z)+38,14,'#f0daa8',true,'right');
     }
     if(player){
       dot(X(player.x),Y(player.z),'#222921',8.3);
@@ -2797,14 +2846,14 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     stroke([[75,641],[75+20*4.66,641]],'#d3c7a7',2);
     stroke([[75,637],[75,645]],'#d3c7a7',2);
     stroke([[75+20*4.66,637],[75+20*4.66,645]],'#d3c7a7',2);
-    label(mapText("20 m (east–west)","20 米（东西向）"),75,662,14,'#cbbf9d');
+    label("20 米（东西向）",75,662,14,'#cbbf9d');
 
-    label(mapText("River Grid","井字水网"),993,72,26,'#eee4cb',true);
-    label(mapText("Two channels, two crosscuts, four junctions","两纵两横，四处交汇"),993,126,18,'#e1d7bd',false,'left',387);
-    label(mapText("Bank paths and four landings","沿岸步道与四处靠岸点"),993,171,18,'#e1d7bd');
+    label("井字水网",993,72,26,'#eee4cb',true);
+    label("两纵两横，四处交汇",993,126,18,'#e1d7bd',false,'left',387);
+    label("沿岸步道与四处靠岸点",993,171,18,'#e1d7bd');
     stroke([[992,219],[1380,219]],'#50574a',1.4);
-    const legend=[['#345e57',mapText("Navigable waterways","可通船水道")],['#a59a7e',mapText("Bank paths","沿河步道")],['#bda77c',mapText("Tavern and passage","酒馆与搬运道")],
-      ['#76ab99',mapText("City main drain","城内排水干渠")],['#ffdda0',mapText("Landing stages","栈台与石台")],['#604744',mapText("Black dragon lair","黑龙巢穴")],['#4e5a53',mapText("Future mine site","矿洞预留区")]];
+    const legend=[['#345e57',"可通船水道"],['#a59a7e',"沿河步道"],['#bda77c',"酒馆与搬运道"],
+      ['#76ab99',"城内排水干渠"],['#ffdda0',"栈台与石台"],['#604744',"黑龙巢穴"],['#4e5a53',"矿洞预留区"]];
     legend.forEach(([color,name],i)=>{
       const y=246+i*46;
       if(i===4)dot(1007,y+6,color,6);
@@ -2815,12 +2864,12 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       label(name,1043,y,18,'#ddd2b7');
     });
     stroke([[992,581],[1380,581]],'#50574a',1.4);
-    label(mapText("Dashed line: passage to the hillside above the lair","虚线为龙巢上方通往山坡的通道"),993,608,15,'#c6b795',false,'left',387);
-    label(mapText("Schematic plan · Walking distances follow the passages","平面示意，步行距离按通道计"),993,644,15,'#c6b795',false,'left',387);
+    label("虚线为龙巢上方通往山坡的通道",993,608,15,'#c6b795',false,'left',387);
+    label("平面示意，步行距离按通道计",993,644,15,'#c6b795',false,'left',387);
 
-    label(mapText("Elevations","高程关系"),53,721,25,'#252923',true);
-    label(mapText("Zero level: normal underground river level","以地下河平水面为零点"),1382,727,16,'#50584d',false,'right',525);
-    const levels=[[mapText("Street +7 m","地面 +7 米"),774],[mapText("Tavern +3 m","酒馆 +3 米"),806],[mapText("Landing +1 m","石台 +1 米"),844],[mapText("Water level ±0 m","水面 ±0 米"),880]];
+    label("高程关系",53,721,25,'#252923',true);
+    label("以地下河平水面为零点",1382,727,16,'#50584d',false,'right',525);
+    const levels=[["地面 +7 米",774],["酒馆 +3 米",806],["石台 +1 米",844],["水面 ±0 米",880]];
     for(const [text,y] of levels){
       label(text,56,y-5,15,'#454838');
       stroke([[209,y],[1382,y]],'#beb49a',1,[6,6]);
@@ -2830,9 +2879,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     stroke([[947,810],[1016,820],[1091,842],[1181,879]],'#588372',3.5);
     ctx.fillStyle='#91ab9a';
     ctx.fillRect(1180,880,202,13);
-    label(mapText("Drain slopes towards the river","干渠向入河口下坡"),1027,787,16,'#526c5d');
-    label(mapText("High-water mark","高水警戒线"),1265,832,15,'#8b5346',false,'left',120);
-    return labels;
+    label("干渠向入河口下坡",1027,787,16,'#526c5d');
+    label("高水警戒线",1265,832,15,'#8b5346',false,'left',120);
   }
 
   function pantryCrate(parent,x,y,z,w,d){
@@ -4300,6 +4348,212 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     interactive.push({name:"与店主交谈",kind:'keeper',point:g.localToWorld(V(0,1.34,.20)),radius:.68});
   }
 
+  function makeSweepingHelper(){
+    const actor=group(scene);
+    actor.name='tavern-helper';
+    const pose=group(actor),face=group(pose,0,1.414,.024);
+    const linen=matte('keeperLinen',3),skirt=matte('keeperApron',2),apron=matte('keeperApron',3);
+    const skin=matte('skin',1),skinLight=matte('skin',2),shoe=matte('strap',3);
+    const hair=[0x77736f,0x9a9691,0xb3aea8,0xc2bbb2].map(solid);
+    const hornSkin=pixelLit(new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96}));
+    const hairGroup=group(face);
+
+    loft(pose,[[.302,.257,.170,-.018],[.358,.252,.170,-.018],[.543,.220,.154,-.019],
+      [.730,.193,.143,-.015],[.862,.176,.128,-.013]],14,skirt,.0021,Math.PI/14);
+    loft(pose,[[.788,.160,.115,-.010],[.891,.171,.126],[.997,.167,.133],
+      [1.116,.199,.136,.006],[1.214,.205,.120,.005],[1.273,.118,.094,.001]],12,linen,.0022);
+    loft(pose,[[1.237,.072,.067],[1.328,.065,.059],[1.378,.061,.061]],10,skin,.0014);
+    const belt=matte('strap',2),fold=matte('rag',1);
+    loft(pose,[[.848,.180,.132],[.887,.178,.132]],14,belt,.0017);
+    const front=apron.clone();
+    front.side=THREE.DoubleSide;
+    pixelLit(front);
+    lowPatch(pose,[[-.105,1.155,.116],[.110,1.155,.116],[.143,.902,.143],
+      [.171,.442,.151],[.005,.426,.171],[-.176,.444,.149],[-.141,.903,.144]],front);
+    for(const side of [-1,1]){
+      lowPatch(pose,[[side*.109,1.128,.123],[side*.146,1.133,.121],
+        [side*.153,1.243,.091],[side*.115,1.251,.101]],front);
+      block(pose,side*.126,1.125,.131,.029,.024,.014,matte('oak',2),false);
+    }
+    lowPatch(pose,[[-.120,.701,.161],[-.032,.701,.171],[-.032,.583,.178],
+      [-.111,.582,.166],[-.122,.604,.162]],apron);
+    for(let i=0;i<4;i++)block(pose,-.110+i*.016,.594+i*.007,.173,.014,.004,.006,fold,false,0,.49);
+    lowPatch(pose,[[.141,.873,.140],[.179,.865,.120],[.208,.617,.142],[.178,.589,.155],
+      [.159,.634,.172],[.145,.611,.178],[.135,.829,.168]],fold);
+
+    loft(face,[[-.096,.040,.062,.031],[-.067,.068,.081,.027],
+      [-.030,.096,.099,.012],[.020,.111,.104,.006],[.072,.111,.104],
+      [.115,.102,.096,-.007],[.155,.076,.069,-.012],[.172,.035,.036,-.013]],14,skin,0);
+    loft(hairGroup,[[.018,.109,.069,-.066],[.103,.126,.115,-.033],
+      [.146,.103,.109,-.023],[.175,.073,.077,-.014],[.184,.025,.034,-.009]],14,hair[1],0);
+    const eyeDark=solid(0x332724),eyeWhite=solid(0xb3a38c),iris=solid(0x936640);
+    for(const side of [-1,1]){
+      beveledRelief(face,[[side*.086,.026,.035],[side*.165,.066,.026],[side*.131,.006,.032],
+        [side*.103,-.027,.046]],.033,skin,.0012);
+      lowPatch(face,[[side*.103,.021,.040],[side*.151,.056,.031],[side*.117,.009,.040]],skinLight);
+      beveledRelief(face,[[side*.017,.046,.110],[side*.046,.057,.105],[side*.079,.055,.081],
+        [side*.076,.040,.087],[side*.044,.038,.108]],.007,eyeDark,.001);
+      block(face,side*.042,.048,.108,.032,.008,.008,eyeWhite,false,0,side*.12);
+      block(face,side*.050,.048,.114,.012,.009,.006,iris,false);
+      block(face,side*.050,.049,.119,.005,.009,.004,eyeDark,false);
+      limb(face,[side*.021,.071,.109],[side*.078,.075,.080],.009,.006,eyeDark,0);
+      carvedLock(hairGroup,[[side*.037,.164,.054,.046,.019],[side*.079,.133,.091,.041,.018],
+        [side*.119,.068,.070,.032,.018],[side*.134,-.023,.041,.026,.015],
+        [side*.161,-.106,.031,.025,.015],[side*.158,-.200,.075,.020,.012],
+        [side*.112,-.264,.096,.005,.007]],hair[side===1?2:3],.0011);
+      for(let i=0;i<3;i++){
+        const u=.047+i*.037;
+        carvedLock(hairGroup,[[side*u,.145,-.049,.042,.018],[side*u*1.32,.048,-.099,.043,.026],
+          [side*u*1.35,-.098,-.118,.036,.021],[side*(u+.044),-.198,-.131,.038,.025],
+          [side*(u+.023),-.294,-.143,.029,.021],[side*(u+.036),-.368+i*.024,-.108,.004,.005]],
+          hair[(i+1)%3],.0011);
+      }
+
+      const horn=[];
+      for(let i=0;i<=21;i++){
+        const t=i/21,a=2.72-5.13*t,r=.138-.091*Math.pow(t,1.72);
+        const rib=(.080*(1-.48*t)*(1-.50*t*t))*(i%3===2?.87:1);
+        horn.push([side*(.242+Math.cos(a)*r),.070+Math.sin(a)*r,-.012+.045*t,rib,Math.max(.004,rib*.93)]);
+      }
+      horn.at(-1)[3]=.002;
+      horn.at(-1)[4]=.002;
+      dragonTube(face,horn,9,hornSkin,[0x674a2d,0x765332,0x88603a,0x926a40,0x59442d],651+side);
+    }
+    beveledRelief(face,[[-.016,.027,.112],[.015,.025,.112],[.019,-.014,.129],
+      [0,-.022,.133],[-.020,-.014,.126]],.021,skinLight,0);
+    limb(face,[-.026,-.051,.108],[.024,-.050,.108],.005,.007,solid(0x885743),0);
+
+    const broom=group(actor),shaft=matte('salvaged',0),twine=matte('rag',2);
+    broom.name='twig-broom';
+    loft(broom,[[.118,.021,.019],[.55,.018,.016],[1.05,.014,.014],[1.46,.013,.011]],
+      8,shaft,.001,Math.PI/8);
+    const rng=random(73491),bristles=new THREE.MeshStandardMaterial({vertexColors:true,
+      roughness:1,side:THREE.DoubleSide});
+    const branches=[];
+    for(let i=0;i<83;i++){
+      const x=(rng()-.5)*.305,z=(rng()-.5)*.105,w=.003+rng()*.002;
+      const start=[x*.18,.275+rng()*.05,z*.28],middle=[x*.66,.113+rng()*.028,z*.73];
+      const end=[x,.014+rng()*.035,z+.018+rng()*.015];
+      const color=new THREE.Color(choose([0x625137,0x766044,0x897452,0x594b37,0x725c40],rng));
+      branches.push({points:[start,[middle[0]-w,middle[1],middle[2]],middle],color},
+        {points:[middle,[middle[0]-w,middle[1],middle[2]],end],color});
+    }
+    stoneFacetMesh(broom,branches,pixelLit(bristles));
+    for(const y of [.179,.216,.239]){
+      loft(broom,[[y,.041,.032],[y+.013,.043,.033]],9,twine,.0006);
+    }
+
+    function segment(rings,material){
+      const node=group(actor);
+      loft(node,rings,9,material,.0017);
+      return node;
+    }
+    const arms=[-1,1].map(side=>({
+      side,
+      sleeve:segment([[0,.054,.054],[.080,.079,.071],[.193,.063,.064],[.232,.060,.059],
+        [.251,.058,.057]],linen),
+      forearm:segment([[0,.042,.044],[.096,.045,.039],[.214,.027,.029]],skin),
+      hand:segment([[-.027,.030,.024],[.011,.034,.027],[.044,.031,.025],[.059,.020,.017]],skinLight)
+    }));
+    const feet=[-1,1].map(side=>{
+      const boot=group(actor);
+      loft(boot,[[.002,.059,.113,.039],[.044,.062,.111,.039],[.097,.054,.092,.026],
+        [.184,.044,.057,-.008],[.208,.047,.057,-.007]],8,shoe,.0018,Math.PI/8);
+      loft(boot,[[.154,.046,.059,-.008],[.183,.049,.059,-.008]],8,belt,.0012);
+      return {side,boot,leg:segment([[0,.056,.058],[.14,.047,.049],[.245,.039,.047]],skirt)};
+    });
+    actor.traverse(part=>{if(part.isMesh)part.castShadow=false;});
+    const vertical=V(0,1,0),shaftAxis=V(),brush=V();
+    function align(node,from,to,length){
+      const delta=to.clone().sub(from),distance=delta.length();
+      node.position.copy(from);
+      node.quaternion.setFromUnitVectors(vertical,delta.divideScalar(Math.max(.001,distance)));
+      node.scale.y=distance/length;
+    }
+    function setPose(phase,walking,sweep,stroke){
+      const step=walking*Math.sin(phase*2),bob=walking*.022*step;
+      pose.position.y=bob;
+      pose.rotation.z=.035*sweep-.018*walking*Math.cos(phase);
+      face.rotation.x=stroke*(.09+.06*Math.cos(sweep));
+      face.rotation.y=-.11*sweep;
+      const swing=walking*Math.sin(phase*.92);
+      brush.set(.16+.44*sweep+.04*swing,.042+.094*walking+.011*stroke,.55+.11*sweep*sweep-.20*walking);
+      shaftAxis.set(-.08-.39*sweep,.95,-.33+.08*walking).normalize();
+      broom.position.copy(brush);
+      broom.quaternion.setFromUnitVectors(vertical,shaftAxis);
+      broom.rotateY(.42*sweep);
+      for(const {side,sleeve,forearm,hand} of arms){
+        const shoulder=V(side*.174,1.204+bob,.010).applyAxisAngle(V(0,0,1),pose.rotation.z);
+        const wrist=brush.clone().addScaledVector(shaftAxis,side===1?1.127:.899);
+        const reach=wrist.clone().sub(shoulder),distance=reach.length();
+        const mid=reach.clone().normalize();
+        const out=V(side*.83,-.65,-.24).addScaledVector(mid,-V(side*.83,-.65,-.24).dot(mid)).normalize();
+        const jointDistance=Math.min(distance*.54,.247);
+        const elbow=shoulder.clone().addScaledVector(mid,jointDistance)
+          .addScaledVector(out,Math.sqrt(Math.max(.006,.244*.244-jointDistance*jointDistance)));
+        align(sleeve,shoulder,elbow,.250);
+        align(forearm,elbow,wrist,.213);
+        hand.position.copy(wrist);
+        hand.quaternion.copy(broom.quaternion);
+        hand.rotateZ(side*.29);
+      }
+      for(const {side,boot,leg} of feet){
+        const swing=phase+(side===1?Math.PI:0);
+        const z=.153*walking*Math.cos(swing)+side*.013;
+        const lift=.081*walking*Math.max(0,Math.sin(swing));
+        boot.position.set(side*.104,lift,z);
+        boot.rotation.x=-.27*walking*Math.sin(swing);
+        align(leg,V(side*.103,lift+.155,z-.005),V(side*.109,.391+bob,.015+z*.21),.245);
+      }
+    }
+
+    const stops=[
+      {x:-2.55,z:3.56,yaw:.95,pause:4.7},
+      {x:-.93,z:2.88,yaw:1.93,pause:4.4},
+      {x:-.84,z:1.12,yaw:-2.60,pause:4.9},
+      {x:-2.21,z:.24,yaw:-1.78,pause:4.6},
+      {x:-2.48,z:1.78,yaw:-1.13,pause:4.8}
+    ];
+    const route=stops.map((from,i)=>{
+      const to=stops[(i+1)%stops.length],dx=to.x-from.x,dz=to.z-from.z;
+      return {from,to,travel:Math.hypot(dx,dz)/.69,heading:Math.atan2(dx,dz)};
+    });
+    const duration=route.reduce((sum,{from,travel})=>sum+from.pause+travel,0);
+    const turn=(a,b,t)=>a+Math.atan2(Math.sin(b-a),Math.cos(b-a))*t;
+    let progress=.47;
+    function update(dt){
+      const t=(progress+dt)%duration;
+      let time=t,stop=route[0];
+      for(const section of route){
+        const length=section.from.pause+section.travel;
+        if(time<=length){stop=section;break;}
+        time-=length;
+      }
+      const {from,to,travel,heading}=stop;
+      const working=time<from.pause;
+      const stride=working?0:clamp((time-from.pause)/travel,0,1);
+      const blend=THREE.MathUtils.smoothstep(stride,0,1);
+      const x=THREE.MathUtils.lerp(from.x,to.x,blend);
+      const z=THREE.MathUtils.lerp(from.z,to.z,blend);
+      if(!working&&Math.hypot(eye.x-x,eye.z-z)<.56){
+        setPose(0,0,0,0);
+        return;
+      }
+      progress=t;
+      actor.position.set(x,0,z);
+      const move=working?0:Math.min(1,6*stride,6*(1-stride));
+      const arc=working
+        ?Math.sin((time-.08)*4.14+.21*Math.sin(time*2.3))*Math.min(1,time*4,(from.pause-time)*4)
+        :0;
+      actor.rotation.y=working?from.yaw+.095*arc:
+        (stride<.5?turn(from.yaw,heading,THREE.MathUtils.smoothstep(stride,0,.28))
+          :turn(heading,to.yaw,THREE.MathUtils.smoothstep(stride,.73,1)));
+      setPose((time-from.pause)*8.4,move,arc,working?1:0);
+    }
+    update(0);
+    return {actor,broom,feet,update};
+  }
+
   buildRoom();
   northPassages();
   buildWaterways();
@@ -4317,6 +4571,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   backBarShelves();
   const {g,c}=counter();
   shopkeeper(g);
+  const helper=makeSweepingHelper();
   scene.add(new THREE.HemisphereLight(0xb8ad98,0x554030,1.14));
   scene.add(new THREE.AmbientLight(0xc8b8a7,.78));
   renderer.shadowMap.needsUpdate=true;
@@ -4342,33 +4597,6 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const mapDialog=byId('map-dialog');
   const closeMap=byId('map-close');
   const mapSheet=byId('map-sheet');
-  const mapLabels=byId('map-labels');
-  const mapAnnotation=byId('map-annotation');
-  const mapHint=mapAnnotation.textContent;
-
-  function showMapLabels(labels){
-    mapAnnotation.textContent=mapHint;
-    const buttons=labels.map(({zh,x,y,width,height})=>{
-      const button=document.createElement('button');
-      button.type='button';
-      button.setAttribute('aria-label',zh);
-      button.style.left=(100*x/mapSheet.width)+'%';
-      button.style.top=(100*y/mapSheet.height)+'%';
-      button.style.width=(100*width/mapSheet.width)+'%';
-      button.style.height=(100*height/mapSheet.height)+'%';
-      const show=()=>{mapAnnotation.textContent=zh;};
-      const reset=()=>{
-        mapAnnotation.textContent=mapLabels.contains(document.activeElement)
-          ?document.activeElement.getAttribute('aria-label'):mapHint;
-      };
-      button.addEventListener('pointerenter',show);
-      button.addEventListener('focus',show);
-      button.addEventListener('click',show);
-      button.addEventListener('pointerleave',reset);
-      return button;
-    });
-    mapLabels.replaceChildren(...buttons);
-  }
 
   function toggleMap(){
     const opening=mapDialog.hidden;
@@ -4380,7 +4608,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     if(opening){
       if(document.pointerLockElement)document.exitPointerLock?.();
       const sailor=underground.sailor;
-      showMapLabels(drawSurvey(mapSheet,sailor.riding?sailor:eye));
+      drawSurvey(mapSheet,sailor.riding?sailor:eye);
       closeMap.focus();
     }else{
       closeMap.blur();
@@ -4668,6 +4896,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     c.intensity=1.32+.08*Math.sin(time*.019);
     updateWaterways(time,transition,dt);
     updateSleepingDragon(time);
+    if(Math.abs(camera.position.x)<15&&Math.abs(camera.position.z)<13)helper.update(dt);
     renderer.render(scene,camera);
     requestAnimationFrame(frame);
   }
