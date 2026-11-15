@@ -644,15 +644,28 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     [31,-55.14,-2.28],[42,-54.31,-2.56],[50.25,-52.32,-2.96]
   ];
   const innerEastBank=riverColumns[1]-riverHalfWidth-bankWidth;
-  const lairEntrance={minX:118.10,maxX:innerEastBank+.04,minZ:-15.78,maxZ:-14.22};
-  const lairElbow={minX:117.76,maxX:119.24,minZ:-15.78,maxZ:-11.48};
-  const lairThroat={minX:114.85,maxX:119.24,minZ:-13.04,maxZ:-11.48};
+  const lairEntrance={minX:118.06,maxX:innerEastBank+.04,minZ:-16.52,maxZ:-13.48};
+  const lairElbow={minX:117.30,maxX:120.40,minZ:-16.52,maxZ:-8.53};
+  const lairThroat={minX:114.85,maxX:120.40,minZ:-11.67,maxZ:-8.53};
+  const lairApproach={minX:innerEastBank-.02,maxX:innerEastBank+.02,
+    minZ:lairEntrance.minZ-2.24,maxZ:lairEntrance.maxZ+2.12};
   const lairPassages=[lairEntrance,lairElbow,lairThroat];
+  const dragonExit={minX:90.10,maxX:99.20,endZ:-39.75};
+  const dragonExitZ=x=>-21.58-(x-89.64)*.54/11.20;
+  const onDragonExitEdge=(x,z)=>x>=dragonExit.minX-.001&&x<=dragonExit.maxX+.001
+    &&Math.abs(z-dragonExitZ(x))<.005;
+  function dragonExitProfile(x){
+    const u=(x-dragonExit.minX)/(dragonExit.maxX-dragonExit.minX);
+    const arch=Math.pow(Math.max(0,Math.sin(Math.PI*u)),.40);
+    const bottom=.43+.08*Math.cos(u*9.28);
+    return {bottom,top:bottom+.63+arch*(3.56+.18*Math.sin(u*12.4))};
+  }
   const lairOutline=[
     [115.34,-17.70],[115.34,lairThroat.minZ],[115.34,lairThroat.maxZ],[115.34,.13],
     [112.96,4.9],[106.54,9.36],[93.84,11.82],[80.74,11.33],[72.41,8.42],
     [68.29,1.65],[68.34,-8.0],[72.34,-15.5],[79.74,-19.1],
-    [89.64,-21.58],[100.84,-22.12],[111.54,-21.23]
+    [89.64,-21.58],[dragonExit.minX,dragonExitZ(dragonExit.minX)],
+    [dragonExit.maxX,dragonExitZ(dragonExit.maxX)],[100.84,-22.12],[111.54,-21.23]
   ];
   const oreEntrance={minX:138.1,maxX:143.55,minZ:-56.60,maxZ:-52.40};
   const oreChamber={minX:143.50,maxX:164.20,minZ:-63.0,maxZ:-45.0};
@@ -691,7 +704,12 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
 
   function inRiverLand(x,z){
-    if(lairPassages.some(rect=>inRect(rect,x,z))||inRect(oreEntrance,x,z)||inRect(oreChamber,x,z))return true;
+    return inDragonLair(x,z)||inRect(oreEntrance,x,z)||inRect(oreChamber,x,z);
+  }
+
+  function inDragonLair(x,z){
+    if(x<68||x>innerEastBank+.04||z<-22.15||z>11.83)return false;
+    if(lairPassages.some(rect=>inRect(rect,x,z)))return true;
     let inside=false;
     for(let i=0,j=lairOutline.length-1;i<lairOutline.length;j=i++){
       const [ax,az]=lairOutline[i],[bx,bz]=lairOutline[j];
@@ -712,7 +730,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
 
   function riverHeight(x,z){
-    if(inRiverLand(x,z))return landingFloor;
+    if(inRiverLand(x,z))return landingFloor+(underground.lair?.nestHeight(x,z)??0);
     if(!inRiverWater(x,z)&&!onDockCut(x,z)&&riverBankRects.some(rect=>inRect(rect,x,z))){
       return landingFloor;
     }
@@ -1331,6 +1349,12 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return stoneFacetMesh(parent,faces,material);
   }
 
+  function dragonGroundPoint(dragon,x,z){
+    const dx=x-dragon.position.x,dz=z-dragon.position.z;
+    const c=Math.cos(dragon.rotation.y),s=Math.sin(dragon.rotation.y);
+    return [(c*dx-s*dz)/dragon.scale.x,(s*dx+c*dz)/dragon.scale.z];
+  }
+
   function sleepingWyvern(parent){
     const root=group(parent,93.5,landingFloor+.14,-6.4,Math.PI+.23);
     const size=1.66;
@@ -1370,13 +1394,38 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     for(const side of [-1,1]){
       const p=(x,y,z)=>[x,y,-.205+side*z];
       dragonTube(head,[
-        [...p(-3.94,.52,.216),.041,.062],[...p(-3.73,.644,.289),.061,.082],
-        [...p(-3.48,.685,.362),.083,.098],[...p(-3.24,.634,.387),.039,.069]
-      ],7,skin,crown,45+side);
+        [...p(-4.075,.497,.270),.025,.025],[...p(-3.924,.567,.319),.078,.057],
+        [...p(-3.72,.603,.360),.099,.083],[...p(-3.505,.606,.398),.103,.072],
+        [...p(-3.29,.576,.416),.047,.042],[...p(-3.15,.604,.395),.012,.010]
+      ],9,skin,[0x3e3936,0x494039,0x514840,0x352f2c],45+side);
       dragonTube(head,[
-        [...p(-3.83,.515,.285),.012,.012],[...p(-3.70,.541,.335),.015,.020],
-        [...p(-3.56,.557,.361),.014,.021],[...p(-3.42,.558,.379),.007,.012]
-      ],5,skin,[0x161414,0x201918],65+side);
+        [...p(-3.99,.491,.286),.015,.016],[...p(-3.86,.519,.345),.054,.031],
+        [...p(-3.71,.535,.403),.068,.043],[...p(-3.52,.538,.435),.071,.039],
+        [...p(-3.37,.549,.445),.044,.024],[...p(-3.27,.558,.417),.010,.014]
+      ],9,skin,[0x282324,0x2b2220,0x332a26,0x211d1d],58+side);
+      dragonTube(head,[
+        [...p(-3.974,.502,.304),.010,.011],[...p(-3.845,.532,.365),.044,.022],
+        [...p(-3.703,.551,.440),.044,.019],[...p(-3.530,.551,.476),.044,.020],
+        [...p(-3.390,.559,.467),.020,.019],[...p(-3.32,.567,.440),.011,.008]
+      ],8,skin,[0x3a302c,0x4b4037,0x413634,0x4b3b33],704+side);
+      dragonTube(head,[
+        [...p(-3.962,.495,.312),.005,.008],[...p(-3.853,.510,.372),.012,.011],
+        [...p(-3.710,.526,.454),.011,.010],[...p(-3.532,.526,.486),.012,.012],
+        [...p(-3.410,.538,.473),.009,.009],[...p(-3.338,.548,.451),.003,.004]
+      ],6,skin,[0x100e0e,0x171214,0x1a1413],65+side);
+      dragonTube(head,[
+        [...p(-3.948,.485,.309),.009,.007],[...p(-3.819,.486,.373),.025,.015],
+        [...p(-3.681,.495,.449),.026,.019],[...p(-3.540,.499,.472),.027,.014],
+        [...p(-3.378,.521,.456),.009,.008]
+      ],7,skin,[0x493c32,0x503e34,0x3c322d,0x524438],835+side);
+      for(const [i,[a,b,c]] of [
+        [[-3.446,.524,.465],[-3.334,.505,.447],[-3.237,.495,.409]],
+        [[-3.552,.483,.452],[-3.453,.453,.433],[-3.342,.444,.414]],
+        [[-3.776,.481,.403],[-3.718,.455,.406],[-3.655,.441,.399]]
+      ].entries()){
+        dragonTube(head,[[...p(...a),.010,.006],[...p(...b),.013,.008],[...p(...c),.003,.003]],
+          5,skin,[0x211b1a,0x2d2421],139+i+side);
+      }
       dragonTube(head,[
         [...p(-4.215,.356,.166),.023,.029],[...p(-4.17,.372,.235),.017,.024],
         [...p(-4.11,.379,.248),.006,.010]
@@ -1435,66 +1484,76 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 
     const wings=[];
     for(const side of [-1,1]){
-      const wing=group(root);
+      const shoulder=[-1.30,1.13,.54],elbow=[-.72,.81,.98],wrist=[-2.08,.21,1.30];
+      const wing=group(root,wrist[0],wrist[1],wrist[2]*side);
       wings.push({side,wing});
-      const point=([x,y,z])=>[x,y-(side===1?.023:0)*z,z*side];
-      const shoulder=[-1.12,1.08,.48],elbow=[-1.65,1.49,1.19],wrist=[-.83,1.96,1.87];
+      // Keep the weight on the wrist while the ribs run back over the flank.
+      const point=([x,y,z])=>[
+        x-wrist[0]+(side===1?.065:0)*THREE.MathUtils.smoothstep(x,-2.08,-.7),
+        y-wrist[1]-(side===1?.040:0)*THREE.MathUtils.smoothstep(x,-2.08,-.7),
+        (z-wrist[2])*side
+      ];
       dragonTube(wing,[
-        [...point(shoulder),.265,.245],[...point([-1.42,1.24,.83]),.218,.214],
-        [...point(elbow),.179,.161],[...point([-1.33,1.70,1.55]),.141,.132],
-        [...point(wrist),.107,.104]
+        [...point(shoulder),.276,.255],[...point([-1.07,1.01,.79]),.226,.224],
+        [...point(elbow),.190,.168],[...point([-1.19,.57,1.14]),.157,.136],
+        [...point([-1.67,.34,1.25]),.128,.111],[...point(wrist),.121,.112]
       ],9,skin,charcoal,745+side);
       const fingers=[
-        [[.18,1.99,1.92],[1.78,1.82,1.93],[3.27,1.49,1.87],[4.56,1.03,1.92]],
-        [[.33,1.88,2.22],[1.74,1.64,2.55],[3.09,1.23,2.71],[4.15,.76,2.91]],
-        [[.16,1.69,2.37],[1.38,1.39,2.86],[2.57,.87,3.23],[3.48,.52,3.42]],
-        [[-.14,1.63,2.28],[.88,1.14,2.72],[1.84,.63,3.14],[2.63,.30,3.36]],
-        [[-.38,1.64,2.03],[.24,1.04,2.35],[.98,.54,2.57],[1.73,.24,2.68]],
-        [[-.62,1.60,1.77],[-.30,1.07,1.64],[.12,.72,1.38],[.62,.48,.93]]
+        [[-1.45,.43,1.23],[-.49,.97,1.01],[.64,1.43,.80],[1.93,1.25,.57]],
+        [[-1.35,.38,1.33],[-.25,.85,1.15],[.98,1.32,.94],[2.83,1.00,.65]],
+        [[-1.31,.32,1.41],[-.14,.69,1.29],[1.27,1.08,1.13],[3.14,.70,.78]],
+        [[-1.33,.26,1.44],[-.14,.46,1.39],[1.08,.78,1.26],[2.55,.43,.89]],
+        [[-1.45,.22,1.44],[-.50,.31,1.40],[.55,.48,1.32],[1.58,.37,1.08]],
+        [[-1.60,.20,1.32],[-.99,.29,1.23],[-.19,.46,1.06],[.70,.57,.74]]
       ];
       const wingRng=random(37+side);
-      const tones=[0x542424,0x5c2929,0x622d2b,0x512827,0x65302c,0x592826];
+      const tones=[0x4a2524,0x572a29,0x62302d,0x512725,0x653430,0x58302c];
       const triangles=[];
-      const color=()=>new THREE.Color(choose(tones,wingRng)).multiplyScalar(.88+wingRng()*.25);
-      const triangle=(a,b,c)=>triangles.push({points:[a,b,c].map(point),color:color()});
+      const triangle=(a,b,c,crease=1)=>triangles.push({
+        points:[a,b,c].map(point),
+        color:new THREE.Color(choose(tones,wingRng)).multiplyScalar(crease*(.88+wingRng()*.23))
+      });
       const between=(a,b,t)=>a.map((n,i)=>THREE.MathUtils.lerp(n,b[i],t));
       for(let finger=0;finger<fingers.length;finger++){
         const rib=fingers[finger];
-        const strength=finger===0?1.24:finger===5?.49:1.0;
-        dragonTube(wing,[[...point(wrist),.069*strength,.066*strength],
-          ...rib.map((p,i)=>[...point(p),[.061,.043,.023,.003][i]*strength,
-            [.058,.041,.022,.005][i]*strength])],7,skin,crown,57+finger+side);
+        const strength=finger===0?1.20:finger===5?.52:1.0;
+        dragonTube(wing,[[...point(wrist),.070*strength,.062*strength],
+          ...rib.map((p,i)=>[...point(p),[.061,.047,.029,.004][i]*strength,
+            [.052,.040,.025,.006][i]*strength])],7,skin,crown,57+finger+side);
         if(finger===0)continue;
         const other=fingers[finger-1];
         const rows=rib.map((b,row)=>{
           const a=other[row];
           const inner=between(other[Math.max(row-1,0)],rib[Math.max(row-1,0)],.5);
-          return [a,...[.23,.50,.77].map(t=>{
+          return [a,...[.24,.50,.76].map(t=>{
             const sample=between(a,b,t);
-            if(row===rib.length-1)return between(sample,inner,Math.sin(t*Math.PI)*.58);
-            sample[1]-=.082*Math.sin(t*Math.PI)*(1+row*.17);
+            const seam=Math.sin(t*Math.PI);
+            if(row===rib.length-1)return between(sample,inner,seam*.55);
+            sample[1]-=.027*seam;
+            sample[2]-=.054*seam*(.6+row*.24);
             return sample;
           }),b];
         });
         for(let col=0;col<4;col++){
-          triangle(wrist,rows[0][col],rows[0][col+1]);
+          const tone=col===0||col===3?.82:1;
+          triangle(wrist,rows[0][col],rows[0][col+1],tone);
           for(let row=1;row<rows.length;row++){
             const a=rows[row-1][col],b=rows[row][col],c=rows[row][col+1],d=rows[row-1][col+1];
-            triangle(a,b,c);
-            triangle(a,c,d);
+            triangle(a,b,c,tone);
+            triangle(a,c,d,tone);
           }
         }
       }
-      const fold=fingers.at(-1);
-      triangle(wrist,elbow,fold[0]);
-      triangle(elbow,shoulder,fold[0]);
-      triangle(shoulder,fold[1],fold[0]);
-      triangle(shoulder,fold[2],fold[1]);
-      triangle(shoulder,fold[3],fold[2]);
+      const fold=fingers[0];
+      triangle(wrist,elbow,fold[0],.90);
+      triangle(elbow,shoulder,fold[1],.88);
+      triangle(elbow,fold[1],fold[0],.90);
+      triangle(shoulder,fold[2],fold[1],.78);
+      triangle(shoulder,[.32,1.38,.59],fold[2],.78);
       stoneFacetMesh(wing,triangles,membrane);
-      dragonTube(wing,[[...point(wrist),.079,.073],[...point([-.95,2.085,1.925]),.062,.056],
-        [...point([-1.13,2.18,1.925]),.034,.031],[...point([-1.31,2.13,1.91]),.005,.007]],
-        7,skin,crown,13+side);
+      dragonTube(wing,[[...point(wrist),.116,.105],[...point([-2.20,.245,1.33]),.087,.079],
+        [...point([-2.34,.202,1.35]),.057,.052],[...point([-2.39,.113,1.37]),.034,.031],
+        [...point([-2.365,.053,1.37]),.004,.006]],7,skin,crown,13+side);
     }
 
     collider(root,.12,.04,3.5*size,2.12*size);
@@ -1502,13 +1561,26 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const tail=group(root,2.76,0,.50,-.12);
     collider(tail,0,0,2.37*size,.66*size);
     for(const side of [-1,1]){
-      const fold=group(root,1.4,0,side*2.48,side*-.47);
-      collider(fold,0,0,3.12*size,1.08*size);
+      collider(root,-.03,side*1.14,4.60*size,.49*size);
     }
     root.updateWorldMatrix(true,false);
     interactive.push({name:'观察卧睡的黑龙',kind:'sleeping-dragon',point:root.localToWorld(V(-3.83,.47,-.26)),
       radius:1.12,range:5.25});
-    return {root,chest,head,wings};
+    const spine=[
+      [-4.10,-.225,1.19],[-2.48,-.14,1.50],[-1.28,.02,2.25],
+      [.91,.045,2.16],[2.88,.58,1.30],[4.50,.22,1.12]
+    ];
+    function keepsDistance(x,z){
+      if(Math.abs(x-root.position.x)>10.1||Math.abs(z-root.position.z)>7.1)return false;
+      const [px,pz]=dragonGroundPoint(root,x,z);
+      for(let i=1;i<spine.length;i++){
+        const [ax,az,ar]=spine[i-1],[bx,bz,br]=spine[i],dx=bx-ax,dz=bz-az;
+        const t=clamp(((px-ax)*dx+(pz-az)*dz)/(dx*dx+dz*dz),0,1);
+        if(Math.hypot(px-ax-t*dx,pz-az-t*dz)<THREE.MathUtils.lerp(ar,br,t))return true;
+      }
+      return false;
+    }
+    return {root,chest,head,wings,keepsDistance};
   }
 
   let caveAudio=null;
@@ -1517,50 +1589,84 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     if(!Context||caveAudio)return;
     try{
       const ctx=new Context();
-      const samples=ctx.createBuffer(1,ctx.sampleRate*3,ctx.sampleRate);
-      const noise=samples.getChannelData(0);
-      const rng=random(318);
+      const samples=ctx.createBuffer(1,ctx.sampleRate*4,ctx.sampleRate);
+      const noise=samples.getChannelData(0),rng=random(318);
       for(let i=0;i<noise.length;i++)noise[i]=(rng()-.5)*.78;
       const source=ctx.createBufferSource();
       source.buffer=samples;
       source.loop=true;
-      function layer(type,hz,gainValue){
+      const room=ctx.createGain(),breath=ctx.createGain(),voice=ctx.createGain();
+      room.gain.value=0;
+      breath.gain.value=0;
+      voice.gain.value=0;
+      const position=ctx.createStereoPanner?.();
+      const out=position??ctx.destination;
+      if(position)position.connect(ctx.destination);
+      room.connect(ctx.destination);
+      breath.connect(out);
+      voice.connect(out);
+      function layer(type,hz,q,gain){
         const filter=ctx.createBiquadFilter();
         filter.type=type;
         filter.frequency.value=hz;
-        const output=ctx.createGain();
-        output.gain.value=gainValue;
-        source.connect(filter).connect(output).connect(ctx.destination);
-        return output.gain;
+        filter.Q.value=q;
+        source.connect(filter).connect(gain);
       }
-      const room=layer('lowpass',265,0);
-      const breath=layer('bandpass',91,0);
+      layer('lowpass',143,.7,room);
+      layer('bandpass',94,.87,breath);
+      const chest=ctx.createOscillator(),undertone=ctx.createOscillator();
+      const resonance=ctx.createBiquadFilter(),undertoneLevel=ctx.createGain();
+      chest.type='triangle';
+      chest.frequency.value=54;
+      undertone.type='sine';
+      undertone.frequency.value=83;
+      undertoneLevel.gain.value=.16;
+      resonance.type='lowpass';
+      resonance.frequency.value=178;
+      resonance.Q.value=.58;
+      chest.connect(resonance).connect(voice);
+      undertone.connect(undertoneLevel).connect(voice);
       source.start();
-      caveAudio={ctx,room,breath,nextDrip:0};
+      chest.start();
+      undertone.start();
+      caveAudio={ctx,room,breath,voice,chest,undertone,position,nextDrip:0};
       ctx.resume().catch(()=>{});
     }catch(_){
-      // The lair remains playable on devices without Web Audio.
+      // Web Audio is optional on the underground route.
     }
   }
 
-  function caveSound(swell){
+  function caveSound(swell,time){
     if(!caveAudio||caveAudio.ctx.state!=='running')return;
-    const {ctx,room,breath}=caveAudio;
-    const listening=started&&inRiverLand(eye.x,eye.z)&&eye.x<119;
-    const near=listening?clamp(1-Math.hypot(eye.x-93.5,eye.z+6.4)/15,0,1):0;
-    room.setTargetAtTime(listening?.063:0,ctx.currentTime,.37);
-    breath.setTargetAtTime(near*(.026+.33*swell),ctx.currentTime,.18);
-    if(!listening||ctx.currentTime<caveAudio.nextDrip)return;
-    caveAudio.nextDrip=ctx.currentTime+3.0+Math.random()*5.5;
+    const {ctx,room,breath,voice,chest,undertone,position}=caveAudio;
+    const listening=started&&!underground.sailor.riding&&inDragonLair(eye.x,eye.z);
+    const mouth=underground.lair.air.muzzle;
+    const dx=mouth.x-eye.x,dz=mouth.z-eye.z,distance=Math.hypot(dx,dz);
+    const proximity=1-THREE.MathUtils.smoothstep(distance,2.0,22.5);
+    const level=listening?(.009+.29*Math.pow(proximity,1.65)):0;
+    const pulse=.105+.895*Math.pow(swell,1.65);
+    const tremor=.94+.036*Math.sin(time*.014)+.024*Math.sin(time*.026);
+    const now=ctx.currentTime;
+    room.gain.setTargetAtTime(listening?.058:0,now,.38);
+    breath.gain.setTargetAtTime(level*(.22+.92*pulse),now,.16);
+    voice.gain.setTargetAtTime(level*pulse*tremor*.47,now,.13);
+    chest.frequency.setTargetAtTime(50+4.8*swell+1.55*Math.sin(time*.0078),now,.16);
+    undertone.frequency.setTargetAtTime(76+6.75*swell+1.10*Math.sin(time*.012),now,.17);
+    if(position){
+      const right=dx*Math.cos(yaw)-dz*Math.sin(yaw);
+      position.pan.setTargetAtTime(.73*right/Math.max(distance,.01),now,.19);
+    }
+    if(!listening||now<caveAudio.nextDrip)return;
+    caveAudio.nextDrip=now+3.0+Math.random()*5.5;
     const drip=ctx.createOscillator(),echo=ctx.createGain();
     drip.type='sine';
-    drip.frequency.setValueAtTime(740+Math.random()*490,ctx.currentTime);
-    drip.frequency.exponentialRampToValueAtTime(184,ctx.currentTime+.135);
-    echo.gain.setValueAtTime(.019,ctx.currentTime);
-    echo.gain.exponentialRampToValueAtTime(.00012,ctx.currentTime+.42);
+    drip.frequency.setValueAtTime(740+Math.random()*490,now);
+    drip.frequency.exponentialRampToValueAtTime(184,now+.135);
+    echo.gain.setValueAtTime(.017,now);
+    echo.gain.exponentialRampToValueAtTime(.00012,now+.42);
     drip.connect(echo).connect(ctx.destination);
     drip.start();
-    drip.stop(ctx.currentTime+.44);
+    drip.stop(now+.44);
   }
 
   function lairRock(parent,x,y,z,sx,sy,sz,seed,material){
@@ -1620,6 +1726,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return pixelLit(new THREE.MeshStandardMaterial({map,roughness:1,side:THREE.DoubleSide}));
   }
 
+  function lairPassageCeiling(x,z){
+    return 1.05+.14*Math.sin(x*1.22+z*1.19)+.08*Math.cos(z*2.13);
+  }
+
   function hiddenLairPassage(parent,floor,stone){
     const passageFloor=quadBatch(),ceilings=quadBatch();
     const chamberEdge=lairOutline[0][0],bankEdge=riverColumns[1]-riverHalfWidth-bankWidth;
@@ -1627,7 +1737,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const edges=(a,b)=>[...new Set(sections.flatMap(r=>[r[a],r[b]]))].sort((x,y)=>x-y);
     const xs=edges('minX','maxX'),zs=edges('minZ','maxZ');
     const rng=random(8192),walls=[];
-    const roof=(x,z)=>.46+.13*Math.sin(x*1.27+z*1.72);
+    const roof=lairPassageCeiling;
     const color=()=>new THREE.Color(choose([0x232a29,0x2b302e,0x30332e,0x373530],rng));
     function wall(ax,az,bx,bz,probeX,probeZ){
       if(lairPassages.some(r=>inRect(r,probeX,probeZ)))return;
@@ -1650,15 +1760,24 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       wall(a,d,b,d,mx,d+.025);
     }
     const {minZ,maxZ}=lairEntrance;
-    const ledge=[bankEdge-.035,.65,(minZ+maxZ)/2];
-    const a=[bankEdge,roof(bankEdge,minZ),minZ],b=[bankEdge,roof(bankEdge,maxZ),maxZ];
-    const c=[bankEdge,3.38,maxZ],d=[bankEdge,3.38,minZ];
-    for(const points of [[a,b,ledge],[b,c,ledge],[c,d,ledge],[d,a,ledge]]){
-      walls.push({points,color:color()});
+    const face=[
+      [lairApproach.minZ,bankEdge],[minZ-.97,bankEdge+.23],[minZ,bankEdge],
+      [maxZ,bankEdge],[maxZ+.81,bankEdge+.33],[lairApproach.maxZ,bankEdge]
+    ];
+    for(let i=1;i<face.length;i++){
+      const [az,ax]=face[i-1],[bz,bx]=face[i];
+      const opening=az===minZ&&bz===maxZ;
+      const a=[ax,opening?roof(ax,az):riverSurface-.42,az];
+      const b=[bx,opening?roof(bx,bz):riverSurface-.42,bz];
+      const c=[bankEdge,3.38,bz],d=[bankEdge,3.38,az];
+      const center=[(ax+bx)*.5+.12,opening?1.63:.77+(rng()-.5)*.65,(az+bz)*.5];
+      for(const points of [[a,b,center],[b,c,center],[c,d,center],[d,a,center]]){
+        walls.push({points,color:color()});
+      }
     }
     for(const [z,direction,reach] of [[minZ,1,.20],[maxZ,-1,.27]]){
       const lip=[bankEdge+.14,-.24,z+reach*direction];
-      const p0=[bankEdge,landingFloor,z],p1=[bankEdge,.75,z],p2=[bankEdge-.33,-1.22,z];
+      const p0=[bankEdge,landingFloor,z],p1=[bankEdge,roof(bankEdge,z)+.15,z],p2=[bankEdge-.33,-1.22,z];
       walls.push({points:[p0,p1,lip],color:color()},{points:[p0,lip,p2],color:color()},
         {points:[p1,p2,lip],color:color()});
     }
@@ -1666,17 +1785,76 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     ceilings.mesh(parent,floor);
     stoneFacetMesh(parent,walls,stone);
     for(const [x,z,sx,sy,sz,seed] of [
-      [121.32,-16.05,.30,1.08,.42,79],[121.37,-13.79,.31,1.54,.43,86],
-      [121.32,-16.35,.37,1.93,.36,31],[121.32,-13.39,.34,.59,.30,47]
+      [bankEdge+.06,minZ-.31,.38,1.62,.40,79],[bankEdge+.08,maxZ+.32,.50,1.35,.38,86],
+      [bankEdge+.17,minZ-1.25,.50,.94,.48,31],[bankEdge+.14,maxZ+1.12,.40,.62,.54,47]
     ]){
       lairRock(parent,x,landingFloor,z,sx,sy,sz,seed,stone);
     }
   }
 
+  function northRockPassage(parent,stone,portal){
+    const rng=random(39157),faces=[];
+    const colors=[0x373a3d,0x444548,0x3b3c3c,0x48484b,0x303335,0x4e4c48];
+    const stops=[
+      [0,0,1,0],[.16,.12,.95,.57],[.34,.62,.94,1.34],
+      [.57,1.39,.88,2.37],[.79,2.22,.93,3.38],[1,2.84,1.04,4.51]
+    ];
+    const middle=(dragonExit.minX+dragonExit.maxX)/2;
+    const rings=stops.map(([t,offset,width,rise],i)=>portal.map(x=>{
+      const {bottom,top}=dragonExitProfile(x);
+      const w=middle+(x-middle)*width+offset;
+      const z=THREE.MathUtils.lerp(dragonExitZ(x),dragonExit.endZ,t);
+      const rough=i===0?0:(rng()-.5)*.25;
+      return {low:[w,bottom+rise+rough,z],high:[w,top+rise+(rng()-.5)*Math.min(t,.33),z]};
+    }));
+    function facets(a,b,c,d,light){
+      const center=[(a[0]+b[0]+c[0]+d[0])*.25,(a[1]+b[1]+c[1]+d[1])*.25,
+        (a[2]+b[2]+c[2]+d[2])*.25];
+      for(const point of [[a,b],[b,c],[c,d],[d,a]]){
+        faces.push({points:[...point,center],color:new THREE.Color(choose(colors,rng))
+          .multiplyScalar(light*(.84+rng()*.29))});
+      }
+    }
+    for(let i=1;i<rings.length;i++){
+      const before=rings[i-1],after=rings[i],light=.86+i*.10;
+      for(let n=1;n<portal.length;n++){
+        const a=before[n-1],b=before[n],c=after[n-1],d=after[n];
+        facets(a.low,b.low,d.low,c.low,light);
+        facets(a.high,c.high,d.high,b.high,light*.88);
+      }
+      for(const n of [0,portal.length-1]){
+        facets(before[n].low,before[n].high,after[n].high,after[n].low,light*.96);
+      }
+    }
+    stoneFacetMesh(parent,faces,stone).name='north-rock-flight-passage';
+
+    // The pale sky is at the far end of the rising passage, behind its outer rock lip.
+    const sky=new THREE.Mesh(new THREE.PlaneGeometry(26,19),new THREE.ShaderMaterial({
+      vertexShader:`
+        varying vec2 skyUV;
+        void main(){skyUV=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}
+      `,
+      fragmentShader:`
+        varying vec2 skyUV;
+        void main(){
+          float y=skyUV.y,x=skyUV.x;
+          vec3 air=mix(vec3(.74,.77,.77),vec3(.42,.54,.63),smoothstep(.18,.92,y));
+          float farSlope=.27+.05*sin(x*8.5+1.1)+.032*sin(x*25.0)+.014*sin(x*52.0);
+          float nearSlope=.17+.13*abs(x-.59)+.022*sin(x*20.0+.9)+.013*sin(x*56.0);
+          air=mix(vec3(.46,.52,.55),air,smoothstep(farSlope-.006,farSlope+.004,y));
+          air=mix(vec3(.31,.35,.37),air,smoothstep(nearSlope-.006,nearSlope+.004,y));
+          gl_FragColor=vec4(air,1.0);
+        }
+      `
+    }));
+    sky.position.set(middle+2.90,8.75,dragonExit.endZ-5.8);
+    parent.add(sky);
+  }
+
   function darkCavern(parent){
     const stone=pixelLit(new THREE.MeshStandardMaterial({vertexColors:true,roughness:.98,side:THREE.DoubleSide}));
     const floor=cavernGround();
-    const floorRock=[0x292d2a,0x30332f,0x3a3a34,0x343631,0x3d3c33,0x363c36];
+    const floorRock=[0x2d3032,0x363838,0x383b3b,0x373735,0x494641,0x3f4443,0x2b2e30];
     const rng=random(2732),wall=[];
     const tint=(y)=>new THREE.Color(choose(floorRock,rng)).multiplyScalar(y);
     const points=lairOutline.map(([x,z])=>new THREE.Vector2(x,z));
@@ -1695,22 +1873,27 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     geometry.computeVertexNormals();
     parent.add(new THREE.Mesh(geometry,floor));
 
-    const rim=[];
+    const rim=[],flightRim=[];
     const chamberEdge=lairOutline[0][0];
     for(let i=0;i<lairOutline.length;i++){
       const [ax,az]=lairOutline[i],[bx,bz]=lairOutline[(i+1)%lairOutline.length];
-      const count=Math.max(2,Math.ceil(Math.hypot(bx-ax,bz-az)/2.4));
+      const flightEdge=onDragonExitEdge(ax,az)&&onDragonExitEdge(bx,bz);
+      const count=flightEdge?12:Math.max(2,Math.ceil(Math.hypot(bx-ax,bz-az)/1.82));
       for(let j=0;j<count;j++){
         const t=j/count;
-        rim.push([THREE.MathUtils.lerp(ax,bx,t),THREE.MathUtils.lerp(az,bz,t)]);
+        const x=THREE.MathUtils.lerp(ax,bx,t),z=THREE.MathUtils.lerp(az,bz,t);
+        rim.push([x,z]);
+        if(flightEdge)flightRim.push(x);
       }
     }
+    flightRim.push(dragonExit.maxX);
     const profile=rim.map(([x,z])=>{
       const vx=(92-x)*.021,vz=(-5-z)*.019;
       return [[x,landingFloor,z],
-        [x+vx*(.2+rng()),-.39+rng()*.81,z+vz*(.2+rng())],
-        [x+vx*(1.3+rng()),2.02+rng()*.69,z+vz*(1.3+rng())],
-        [x+vx*(2.9+rng()),4.32+rng()*.72,z+vz*(2.9+rng())]];
+        [x+vx*(.30+rng()),-.86+rng()*.45,z+vz*(.30+rng())],
+        [x-vx*(.36+rng()),.38+rng()*1.0,z-vz*(.36+rng())],
+        [x+vx*(1.6+rng()),2.53+rng()*.65,z+vz*(1.6+rng())],
+        [x+vx*(2.6+rng()),4.82+rng()*.54,z+vz*(2.6+rng())]];
     });
     for(let i=0;i<rim.length;i++){
       const j=(i+1)%rim.length;
@@ -1718,24 +1901,30 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       const nearDoor=rim[i][0]===chamberEdge&&rim[j][0]===chamberEdge&&
         Math.min(rim[i][1],rim[j][1])>=lairThroat.minZ-.001&&
         Math.max(rim[i][1],rim[j][1])<=lairThroat.maxZ+.001;
-      if(!nearDoor){
-        for(let row=1;row<4;row++){
-          const u=aa[row-1],v=bb[row-1],w=aa[row],p=bb[row];
-          wall.push({points:[u,v,w],color:tint(.88+rng()*.28)},
-            {points:[v,p,w],color:tint(.84+rng()*.34)});
-        }
+      const [ax,az]=rim[i],[bx,bz]=rim[j];
+      const flightEdge=onDragonExitEdge(ax,az)&&onDragonExitEdge(bx,bz);
+      function band(a,b,c,d){
+        wall.push({points:[a,b,c],color:tint(.82+rng()*.30)},
+          {points:[b,d,c],color:tint(.84+rng()*.34)});
+      }
+      if(flightEdge){
+        const a=dragonExitProfile(ax),b=dragonExitProfile(bx);
+        band(aa[0],bb[0],[ax,a.bottom,az],[bx,b.bottom,bz]);
+        band([ax,a.top,az],[bx,b.top,bz],aa.at(-1),bb.at(-1));
+      }else if(nearDoor){
+        band([ax,lairPassageCeiling(ax,az),az],[bx,lairPassageCeiling(bx,bz),bz],aa[3],bb[3]);
+        band(aa[3],bb[3],aa[4],bb[4]);
       }else{
-        wall.push({points:[aa[2],bb[2],aa[3]],color:tint(.93)},
-          {points:[bb[2],bb[3],aa[3]],color:tint(1.06)});
+        for(let row=1;row<aa.length;row++)band(aa[row-1],bb[row-1],aa[row],bb[row]);
       }
     }
     // Broken rock layers taper into an irregular crown, with no single hub of long triangles.
-    const roofRings=[profile.map(p=>p[3])];
+    const roofRings=[profile.map(p=>p.at(-1))];
     for(const [i,radius] of [.68,.38,.12].entries()){
       roofRings.push(rim.map(([x,z])=>{
         const px=93.4+(x-93.4)*radius+(rng()-.5)*.74;
         const pz=-6.5+(z+6.5)*radius+(rng()-.5)*.64;
-        const y=4.53+i*.31+Math.sin(px*.38+pz*.56)*.24+rng()*.32;
+        const y=4.88+i*.24+Math.sin(px*.38+pz*.56)*.19+rng()*.31;
         return [px,y,pz];
       }));
     }
@@ -1751,20 +1940,21 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     const cap=roofRings.at(-1);
     for(let i=0;i<cap.length;i++)wall.push({
-      points:[cap[i],cap[(i+1)%cap.length],[93.20,5.36,-6.57]],color:roofTone()
+      points:[cap[i],cap[(i+1)%cap.length],[93.20,5.58,-6.57]],color:roofTone()
     });
     stoneFacetMesh(parent,wall,stone);
     hiddenLairPassage(parent,floor,stone);
+    northRockPassage(parent,stone,flightRim);
 
     for(let i=0;i<rim.length;i+=2){
       const [x,z]=rim[i];
-      if(x>114.7&&z>lairThroat.minZ-1.35&&z<lairThroat.maxZ+1.35)continue;
+      if((x>114.7&&z>lairThroat.minZ-1.35&&z<lairThroat.maxZ+1.35)||onDragonExitEdge(x,z))continue;
       const towardsX=(92-x)*.056,towardsZ=(-5-z)*.051;
       const scale=.6+rng()*1.35;
       lairRock(parent,x+towardsX,landingFloor,z+towardsZ,
         scale,scale*(.41+rng()),scale*(.63+rng()*.30),880+i,stone);
     }
-    for(const [x,z,sx,sy,sz] of [[112.65,-15.76,1.10,1.52,.88],[112.1,-8.89,1.02,1.85,.78],
+    for(const [x,z,sx,sy,sz] of [[112.65,-14.51,1.31,1.52,1.0],[112.6,-6.46,1.15,1.85,.80],
       [83.9,-14.33,1.53,1.28,1.01],[105.9,-3.18,1.40,.65,1.41],
       [97.43,8.6,1.61,.93,1.09],[88.55,7.5,.88,.35,.66],[80.7,1.34,.98,1.66,1.11]]){
       const rock=lairRock(parent,x,landingFloor,z,sx,sy,sz,Math.round(x*109),stone);
@@ -1779,42 +1969,57 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return stone;
   }
 
-  function dryHayPile(parent,stone,x,z,sx,sz,height,seed){
-    const pile=group(parent,x,landingFloor+.008,z,(seed%11)*.41);
-    pile.name='dry-hay-pile';
-    const rng=random(seed),faces=[];
-    const color=choices=>new THREE.Color(choose(choices,rng)).multiplyScalar(.76+rng()*.29);
-    const straw=[0x775b32,0x967445,0xaa8d5b,0x6d522d,0x8a6b3b,0x57412a];
-    const base=[0x59452a,0x6a512e,0x775c36,0x62492a];
-    const profile=(x,z)=>height*Math.pow(Math.max(0,1-(x/sx)**2-(z/sz)**2),1.32);
-    for(let ring=1;ring<=4;ring++){
-      const perimeter=16;
-      const point=(r,i)=>{
-        const a=i/perimeter*Math.PI*2,dist=r/4*(.95+.05*Math.sin(i*2.7+seed));
-        const x=Math.cos(a)*sx*dist,z=Math.sin(a)*sz*dist;
-        return [x,profile(x,z)+.028,z];
-      };
-      for(let i=0;i<perimeter;i++){
-        const a=point(ring-1,i),b=point(ring,i),c=point(ring,i+1),d=point(ring-1,i+1);
-        faces.push({points:[a,c,b],color:color(base)});
-        if(ring>1)faces.push({points:[a,d,c],color:color(base)});
-      }
+  function weatheredBedding(root,stone){
+    const rx=5.46,rz=2.17;
+    const rng=random(4918),faces=[],stems=[];
+    const rough=a=>1+.048*Math.sin(a*5.0+.7)+.042*Math.cos(a*9.0-1.2)+.022*Math.sin(a*19);
+    const center=x=>.30*THREE.MathUtils.smoothstep(x,.65,3.3)-.19*THREE.MathUtils.smoothstep(-x,2.65,4.52);
+    const tone=(x,z)=>.53+.18*Math.sin(x*2.1+z*3.8)+.16*Math.cos(x*4.8-z*2.0)+.09*Math.sin(z*17+x*6);
+    function height(x,z){
+      const u=x/rx,v=(z-center(x))/rz;
+      const a=Math.atan2(v,u),r=Math.hypot(u,v)/rough(a);
+      const edge=1-THREE.MathUtils.smoothstep(r,.80,1.02);
+      const lip=Math.exp(-(((r-.76)/.20)**2));
+      const worn=Math.exp(-(((z-center(x))/.81)**2));
+      return edge*(.198+.105*lip*(.50+.57*tone(x,z))-.052*worn+.018*tone(x,z));
     }
-    for(let i=0;i<480;i++){
-      const a=rng()*Math.PI*2,r=Math.sqrt(rng())*(.43+rng()*.68);
-      const x=Math.cos(a)*sx*r,z=Math.sin(a)*sz*r;
-      const dir=a+(rng()-.5)*2.8,len=.14+rng()*.43;
-      const dx=Math.cos(dir),dz=Math.sin(dir),w=.005+rng()*.011;
-      const xa=x-dx*len*.36,za=z-dz*len*.36,xb=x+dx*len*.64,zb=z+dz*len*.64;
-      const ya=profile(xa,za)+.025,yb=profile(xb,zb)+.03+rng()*.08;
-      const mid=[x,profile(x,z)+.055+rng()*.067,z];
-      const start=[xa,ya,za],side=[xa+dz*w,ya+.012,za-dx*w],end=[xb,yb,zb];
-      const tone=color(straw);
-      faces.push({points:[start,side,mid],color:tone},
-        {points:[side,[mid[0]+dz*w,mid[1],mid[2]-dx*w],end],color:tone},
-        {points:[side,end,mid],color:tone});
+    const base=[0x504337,0x594b3b,0x4a4136,0x5f503e,0x524b40,0x5b5144];
+    const straw=[0x6f5e49,0x796950,0x6e6350,0x615240,0x7d6c56,0x584b3c,0x685b4c];
+    const scraps=[0x4e453a,0x665a49,0x50483e,0x5e5345];
+    function colored(palette,x,z){
+      return new THREE.Color(choose(palette,rng)).multiplyScalar(.75+tone(x,z)*.28+rng()*.16);
     }
-    stoneFacetMesh(pile,faces,stone);
+    function point(a,r){
+      const b=r*rough(a),x=rx*b*Math.cos(a),z=rz*b*Math.sin(a)+center(x);
+      return [x,height(x,z),z];
+    }
+    const segments=96,rings=20;
+    const rows=Array.from({length:rings+1},(_,i)=>
+      Array.from({length:segments},(_,j)=>point(j/segments*Math.PI*2,i/rings)));
+    for(let i=1;i<=rings;i++)for(let j=0;j<segments;j++){
+      const k=(j+1)%segments;
+      const a=rows[i-1][j],b=rows[i][j],c=rows[i][k],d=rows[i-1][k];
+      faces.push({points:[a,c,b],color:colored(base,b[0],b[2])});
+      if(i>1)faces.push({points:[a,d,c],color:colored(base,d[0],d[2])});
+    }
+    for(let i=0;i<9400;i++){
+      const a=rng()*Math.PI*2;
+      const r=i<8000?Math.sqrt(rng()):.76+rng()*.31;
+      const [x,y,z]=point(a,r);
+      const flatness=THREE.MathUtils.smoothstep(Math.abs(z-center(x)),.15,1.66);
+      const dir= a+(rng()-.5)*(1.2+flatness*3.0);
+      const len=(.07+rng()*.26)*(.66+flatness*.34);
+      const dx=Math.cos(dir),dz=Math.sin(dir),w=.003+rng()*.009;
+      const xa=x-dx*len*.44,za=z-dz*len*.44,xb=x+dx*len*.56,zb=z+dz*len*.56;
+      const start=[xa,height(xa,za)+.006,za],end=[xb,height(xb,zb)+.012+rng()*.033,zb];
+      const bend=[x,y+.012+rng()*.044*flatness,z];
+      const edge=[x+dz*w,bend[1]+.004,z-dx*w];
+      const c=colored(r>1||rng()<.23?scraps:straw,x,z);
+      stems.push({points:[start,bend,edge],color:c},{points:[bend,end,edge],color:c});
+    }
+    stoneFacetMesh(root,faces,stone);
+    stoneFacetMesh(root,stems,stone);
+    return height;
   }
 
   function dragonCrystalCluster(parent,stone,x,z,size,seed,shade,lit=true){
@@ -1866,38 +2071,15 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
 
   function wyvernNest(parent,dragon,stone){
-    const root=group(parent,dragon.root.position.x,landingFloor+.019,dragon.root.position.z,dragon.root.rotation.y);
-    root.scale.set(1.62,1,1.68);
-    const burnt=[0x2c251e,0x28211c,0x312a23,0x2a231e,0x302820];
-    const rng=random(9205);
-    const dirt=[];
-    const shape=[];
-    for(let i=0;i<28;i++){
-      const ang=i*Math.PI/14,rough=.82+rng()*.28;
-      shape.push([Math.cos(ang)*4.69*rough,.020+rng()*.035,Math.sin(ang)*2.36*rough]);
-    }
-    for(let i=0;i<shape.length;i++){
-      const j=(i+1)%shape.length;
-      dirt.push({points:[[.20,.091,-.125],shape[j],shape[i]],color:new THREE.Color(choose(burnt,rng))});
-    }
-    const litter=[];
-    for(let i=0;i<262;i++){
-      const ang=rng()*Math.PI*2,r=.31+Math.sqrt(rng())*.74;
-      const x=Math.cos(ang)*r*4.18,z=Math.sin(ang)*r*1.91;
-      const y=.041+(1-r)*.096+rng()*.045;
-      const length=.18+rng()*.46,bearing=ang+(.34+rng()*.76)*Math.PI;
-      const tip=[x+Math.cos(bearing)*length,y+rng()*.067,z+Math.sin(bearing)*length];
-      const w=.008+rng()*.017;
-      litter.push({points:[[x-w,y,z],[x+w,y+.012,z+.009],tip],
-        color:new THREE.Color(choose([0x544432,0x6c5640,0x41362b,0x75624c,0x352f27],rng))});
-    }
-    stoneFacetMesh(root,dirt,stone);
-    stoneFacetMesh(root,litter,stone);
+    const root=group(parent,dragon.root.position.x,landingFloor+.009,dragon.root.position.z,dragon.root.rotation.y);
+    root.name='weathered-dragon-bedding';
+    root.scale.set(dragon.root.scale.x,1,dragon.root.scale.z);
+    const height=weatheredBedding(root,stone);
 
     const bone=matte('wax',1);
     for(const [x,z,len,yaw] of [[-2.91,-1.87,.76,-.24],[2.24,1.63,.52,.44],
       [-3.58,1.33,.48,-.70],[3.08,-1.81,.82,.51]]){
-      const shard=group(root,x,.13,z,yaw);
+      const shard=group(root,x,height(x,z)-.008,z,yaw);
       dragonTube(shard,[[-len/2,.02,0,.053,.057],[-len*.37,.031,0,.065,.058],
         [-.081,0,.018,.039,.039],[len*.28,.017,-.008,.046,.051],
         [len/2,.030,.016,.061,.074]],7,stone,[0x8c806a,0x79735e,0x978973],93+Math.round(len*10));
@@ -1908,7 +2090,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         shard.add(joint);
       }
     }
-    const skull=group(root,-3.76,.123,-1.81,.33);
+    const skull=group(root,-3.76,height(-3.76,-1.81),-1.81,.33);
     dragonTube(skull,[[-.31,.105,0,.060,.090],[-.24,.125,0,.104,.133],[-.03,.156,0,.139,.157],
       [.14,.152,.022,.121,.134],[.24,.109,.032,.083,.098]],8,stone,
       [0x928875,0x7c735e,0xa09277],54);
@@ -1918,6 +2100,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       socket.scale.set(1.36,.80,.52);
       skull.add(socket);
     }
+    return (x,z)=>height(...dragonGroundPoint(dragon.root,x,z));
   }
 
   function lairAir(parent,dragon){
@@ -1945,7 +2128,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const muzzle=dragon.root.localToWorld(V(-4.30,.28,-.23));
     const exhale=V(-1,.115,0).transformDirection(dragon.root.matrixWorld);
 
-    const cone=new THREE.Mesh(new THREE.ConeGeometry(2.65,6.28,22,1,true),
+    const beamOrigin=V(94.6,3.66,-21.55),beamEnd=V(98.6,-1.85,-8.95);
+    const beamDirection=beamOrigin.clone().sub(beamEnd);
+    const cone=new THREE.Mesh(new THREE.ConeGeometry(4.2,beamDirection.length(),24,1,true),
       new THREE.ShaderMaterial({
         side:THREE.DoubleSide,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
         uniforms:{clock:underground.waterTime},
@@ -1963,15 +2148,15 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
           }
         `
       }));
-    cone.position.set(95.70,1.45,-5.02);
-    cone.rotation.z=-.22;
+    cone.position.copy(beamOrigin).lerp(beamEnd,.5);
+    cone.quaternion.setFromUnitVectors(V(0,1,0),beamDirection.normalize());
     parent.add(cone);
 
     const dust=[];
     const dustPositions=new Float32Array(52*3);
     for(let i=0;i<52;i++){
       const y=rng(),a=rng()*Math.PI*2,r=Math.sqrt(rng())*(1.95-y*1.41);
-      dust.push([96.15+Math.cos(a)*r+(y-.5)*1.24,-1.62+y*5.92,-5.01+Math.sin(a)*r,rng()*6.28]);
+      dust.push([98.6-y*4+Math.cos(a)*r,-1.57+y*5.11,-8.95-y*12.60+Math.sin(a)*r,rng()*6.28]);
     }
     const motes=new THREE.BufferGeometry();
     const moving=new THREE.BufferAttribute(dustPositions,3).setUsage(THREE.DynamicDrawUsage);
@@ -1987,9 +2172,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   function buildDragonLair(parent){
     const cavern=group(parent);
     const stone=darkCavern(cavern);
-    const shaft=new THREE.SpotLight(0xb1c5ca,84,22,.63,.84,1.38);
-    shaft.position.set(96.41,4.87,-5.05);
-    shaft.target.position.set(94.72,landingFloor+.19,-7.28);
+    const shaft=new THREE.SpotLight(0xb8ccd5,218,29,.47,.85,1.40);
+    shaft.position.set(94.6,3.66,-22.09);
+    shaft.target.position.set(97.6,landingFloor+.27,-8.71);
     cavern.add(shaft,shaft.target);
     underground.lamps.push(shaft);
     function halo(color,x,y,z,intensity,distance){
@@ -1998,10 +2183,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       cavern.add(lamp);
       underground.lamps.push(lamp);
     }
-    halo(0xa4baba,99.1,1.55,-7.8,29,17);
-    halo(0xb9957c,94.1,.06,-11.3,20,13);
+    halo(0xa9b9bb,101.2,1.12,-10.05,30,16);
+    halo(0xa68d78,94.1,.36,-11.1,19,14);
     halo(0x849caa,86.8,1.05,-4.3,26,17);
-    halo(0x667d88,117.20,-.48,-12.11,1.35,3.4);
+    halo(0x718e91,118.07,-.33,-11.36,3.0,4.7);
+    halo(0xa2b5c2,96.20,5.14,-28.43,45,13);
 
     for(const [x,z,size,seed,color,lit] of [
       [103.8,-9.9,1.24,2507,0x6eaaa7,true],
@@ -2012,10 +2198,6 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       [84.65,-1.89,.69,153,0x6eaaa7,false],
       [109.48,-13.42,.44,230,0x8895cb,true]
     ])dragonCrystalCluster(cavern,stone,x,z,size,seed,color,lit);
-    for(const [x,z,sx,sz,height,seed] of [
-      [100.38,-7.18,1.93,.98,.49,303],[96.66,-10.61,1.80,.97,.53,497],
-      [91.16,-1.75,1.85,1.08,.55,771],[89.75,-9.92,1.37,.83,.37,129]
-    ])dryHayPile(cavern,stone,x,z,sx,sz,height,seed);
 
     const ledges=quadBatch();
     for(const [x,z,rx,rz] of [[80.6,-.57,1.50,.72],[106.7,4.28,3.05,1.30],[99.6,-15.1,2.15,.96]]){
@@ -2030,9 +2212,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     ledges.mesh(cavern,waterMaterial(.28,.94,0x142726,0x547c75));
     const dragon=sleepingWyvern(cavern);
-    wyvernNest(cavern,dragon,stone);
+    const nestHeight=wyvernNest(cavern,dragon,stone);
     const air=lairAir(cavern,dragon);
-    underground.lair={dragon,air};
+    underground.lair={dragon,air,nestHeight};
   }
 
   function buildOreReserve(parent,mats){
@@ -2063,12 +2245,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const {dragon,air}=lair;
     const cycle=time*.0011;
     const swell=(1-Math.cos(cycle))/2;
-    caveSound(swell);
+    caveSound(swell,time);
     dragon.chest.scale.set(1,1+swell*.029,1+swell*.039);
     dragon.head.position.y=swell*.012;
     for(const {side,wing} of dragon.wings){
-      wing.rotation.x=side*(swell*.016);
-      wing.position.y=swell*.009;
+      wing.rotation.x=side*(swell*.011);
     }
     for(const [i,puff] of air.breath.entries()){
       const age=((time/1000+4.22-i*.16)%5.72+5.72)%5.72;
@@ -2095,7 +2276,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     scenicWet[1].maxZ+=8.4; scenicWalk[1].maxZ+=8.4;
     const inside=(rects,x,z)=>rects.some(rect=>inRect(rect,x,z));
     const sorted=values=>[...new Set(values)].sort((a,b)=>a-b);
-    const bounds=[...scenicWet,...scenicWalk,dockPad,oreEntrance,lairEntrance];
+    const bounds=[...scenicWet,...scenicWalk,dockPad,oreEntrance,lairEntrance,lairApproach];
     const xs=sorted(bounds.flatMap(r=>[r.minX,r.maxX]));
     const zs=sorted([...bounds.flatMap(r=>[r.minZ,r.maxZ]),-55.43,-49.31]);
     const water=quadBatch(),paths=quadBatch(),quays=quadBatch(),rocks=quadBatch(),roof=quadBatch();
@@ -2114,8 +2295,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         &&mz>-55.43&&mz<-49.31;
       const caveMouth=(Math.abs(mx-riverColumns[0])<8.5&&Math.abs(mz-scenicWalk[0].minZ)<.01)||
         (Math.abs(mx-riverColumns[1])<8.5&&Math.abs(mz-scenicWalk[1].maxZ)<.01);
-      const doorway=ax===bx&&((Math.abs(mx-innerEastBank)<.02&&
-        mz>lairEntrance.minZ&&mz<lairEntrance.maxZ)||
+      const doorway=ax===bx&&(inRect(lairApproach,mx,mz)||
         (Math.abs(mx-(riverColumns[1]+riverHalfWidth+bankWidth))<.02&&mz>oreEntrance.minZ&&mz<oreEntrance.maxZ));
       if(!dock&&!canal&&!caveMouth&&!doorway)wall(rocks,ax,az,bx,bz,riverSurface-.42,roofHeight+.04);
     }
@@ -2418,6 +2598,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     ctx.restore();
     label('黑龙巢穴',X(93.8),Y(-7.8),25,'#f5e1c8',true,'center');
+    const exitX=(dragonExit.minX+dragonExit.maxX)/2;
+    stroke([[X(exitX),Y(dragonExitZ(exitX))],[X(exitX+2.84),Y(dragonExit.endZ)]],
+      '#a5afb0',1.65,[4,4]);
+    dot(X(exitX+2.84),Y(dragonExit.endZ),'#b8c2bc',3.5);
+    label('岩壁高位出入口',X(exitX+2.84),Y(dragonExit.endZ)-13,13,'#ced6c9',false,'center');
     rect(oreEntrance,'#8c846c');
     rect(oreChamber,'#4e5a53');
     const ore=[[X(oreChamber.minX),Y(oreChamber.minZ)],[X(oreChamber.maxX),Y(oreChamber.minZ)],
@@ -2484,6 +2669,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       label(name,1043,y,18,'#ddd2b7');
     });
     stroke([[992,581],[1380,581]],'#50574a',1.4);
+    label('虚线为龙巢上方通往山坡的通道',993,623,15,'#c6b795');
     label('平面示意，步行距离按通道计',993,656,15,'#c6b795');
 
     label('高程关系',53,733,26,'#252923',true);
@@ -4086,7 +4272,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return stairAt(x,z)!==null||undergroundWalkable(x,z);
   }
   function blocked(x,z){
-    if(!walkable(x,z))return true;
+    if(!walkable(x,z)||underground.lair?.dragon.keepsDistance(x,z))return true;
     for(const b of collisions){
       const px=x-b.x,pz=z-b.z;
       const lx=b.c*px-b.s*pz,lz=b.s*px+b.c*pz;
