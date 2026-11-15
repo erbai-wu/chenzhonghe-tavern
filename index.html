@@ -156,6 +156,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
 
   const materials = {};
+  const floorMaterials = new Map();
+  const floorAnisotropy = Math.min(8,renderer.capabilities.getMaxAnisotropy());
   function swatch(kind,variant) {
     const r = random(351 + variant*571 + kind.charCodeAt(0)*113 + kind.length*47);
     const colors=palettes[kind].map(rgb);
@@ -203,6 +205,25 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     if(!materials[kind]) materials[kind]=Array.from({length:6},(_,i)=>swatch(kind,i));
     return materials[kind][((index%6)+6)%6];
   }
+  function floorMatte(kind,index=0){
+    const source=matte(kind,index);
+    if(!floorMaterials.has(source)){
+      // Filter distant texels and use continuous lighting on walkable stone.
+      const texels=canvas(source.map.image.width*2,source.map.image.height*2);
+      const draw=texels.getContext('2d');
+      draw.imageSmoothingEnabled=false;
+      draw.drawImage(source.map.image,0,0,texels.width,texels.height);
+      const map=texture(texels);
+      map.minFilter=THREE.LinearMipmapLinearFilter;
+      map.magFilter=THREE.LinearFilter;
+      map.anisotropy=floorAnisotropy;
+      map.wrapS=map.wrapT=THREE.RepeatWrapping;
+      const mat=new THREE.MeshStandardMaterial({map,roughness:source.roughness});
+      mat.userData.tileSpan=source.userData.tileSpan;
+      floorMaterials.set(source,mat);
+    }
+    return floorMaterials.get(source);
+  }
   function solid(hex) {
     return pixelLit(new THREE.MeshStandardMaterial({color:hex,roughness:.9}));
   }
@@ -216,6 +237,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const northDoorway={x:2.91,z:-4.80,half:.78};
   const kitchenDoorway={x:.57,z:4.80,half:.76};
   const kitchenRoom={x:.66,z:6.74,halfWidth:2.335};
+  const hallPavingDepth=9.7;
   const stairStart=-7.16;
   const tread=.32;
   const stairs=[
@@ -427,7 +449,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       }
     }
     if(groutPos.length){
-      const mat=matte('mortar',seed%5);
+      const mat=(paved?floorMatte:matte)('mortar',seed%5);
       mat.map.wrapS=mat.map.wrapT=THREE.RepeatWrapping;
       const geometry=new THREE.BufferGeometry();
       geometry.setAttribute('position',new THREE.Float32BufferAttribute(groutPos,3));
@@ -439,7 +461,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     for(const [i,bucket] of meshes.entries()){
       if(!bucket.pos.length)continue;
-      const mat=matte(paved?'paving':'fieldstone',i);
+      const mat=paved?floorMatte('paving',i):matte('fieldstone',i);
       mat.map.wrapS=mat.map.wrapT=THREE.RepeatWrapping;
       const geo=new THREE.BufferGeometry();
       geo.setAttribute('position',new THREE.Float32BufferAttribute(bucket.pos,3));
@@ -451,18 +473,23 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
   }
 
-  function stonePaving(parent,x,z,width,depth,seed){
-    const surface=group(parent,x,-.004,z+depth/2);
+  function pavingBed(parent,z,width,depth,height){
+    // Keep the floor backing clear of the grout plane.
+    block(parent,0,-.04-height/2,z,width,height,depth,dark,false);
+  }
+  function stonePaving(parent,width,minZ,maxZ,seed){
+    const surface=group(parent,0,-.004,maxZ);
     surface.rotation.x=-Math.PI/2;
-    fieldWall(surface,0,0,0,width,depth,0,seed,null,0,true);
+    fieldWall(surface,0,0,0,width,maxZ-minZ,0,seed,null,0,true);
   }
 
   function northPassages(){
     const landing=group(scene,3.04,0,-5.984);
     const stone=matte('stone',2);
-    const paving=matte('floor',1);
-    block(landing,0,-.103,0,4.73,.19,2.39,dark,false);
-    stonePaving(landing,0,0,4.73,2.39,541);
+    const paving=floorMatte('floor',1);
+    pavingBed(landing,0,4.73,2.39,.19);
+    // Paving sections meet at a single edge instead of overlapping at the doors.
+    stonePaving(landing,4.73,stairStart-landing.position.z,-hallPavingDepth/2-landing.position.z,541);
     block(landing,0,2.66,0,4.79,.20,2.49,stone,false,.55);
     for(const side of [-1,1]){
       block(landing,side*2.416,1.32,0,.15,2.64,2.49,dark,false);
@@ -477,9 +504,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       for(let i=0;i<count;i++){
         const z=stairStart-(i+.5)*tread;
         const top=rise*(i+1);
-        const slab=paving;
-        block(scene,x,top-.122,z,width,.246,tread+.012,slab,false,.53);
-        block(scene,x,top-.039,z+tread*.441,width,.078,.040,matte('hearth',index+2),false,.52);
+        block(scene,x,top-.123,z,width,.246,tread,paving,false,.53);
+        block(scene,x,top-.044,z+tread*.441,width-.01,.078,.040,floorMatte('hearth',index+2),false,.52);
         for(const side of [-1,1]){
           block(scene,x+side*(width/2+.121),top+1.29,z,.172,2.67,tread+.02,dark,false);
         }
@@ -492,7 +518,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
           count*tread,2.62,-side*Math.PI/2,471+index*19+side,null,-side*rise/tread);
       }
       const end=group(scene,x,endpointY,endpointZ-.245);
-      block(end,0,-.09,.195,width,.18,.70,paving,false,.51);
+      block(end,0,-.09,.045,width,.18,.40,paving,false,.51);
       block(end,0,1.28,-.055,width+.35,2.63,.22,stone,false,.52);
       if(kind==='street'){
         timberDoor(end,0,.105);
@@ -508,31 +534,12 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         kind,point:V(x,endpointY+1.30,endpointZ-.25),radius:.79
       });
     }
-
-    function sign(x,label){
-      const px=canvas(128,32),draw=px.getContext('2d');
-      draw.fillStyle='#684c31';
-      draw.fillRect(0,0,128,32);
-      draw.fillStyle='#c5b187';
-      draw.font='bold 21px sans-serif';
-      draw.textAlign='center';
-      draw.textBaseline='middle';
-      draw.fillText(label,64,17);
-      const plaque=group(scene,x,2.37,-7.07);
-      block(plaque,0,0,0,1.47,.32,.07,matte('oak',2),true,.43);
-      const face=new THREE.Mesh(new THREE.PlaneGeometry(1.40,.276),
-        new THREE.MeshStandardMaterial({map:texture(px),roughness:1}));
-      face.position.z=.036;
-      plaque.add(face);
-    }
-    sign(stairs[0].x,'↑ 地面');
-    sign(stairs[1].x,'↓ 河道 · 排水');
   }
 
   function backKitchen(){
     const kitchen=group(scene,kitchenRoom.x,0,kitchenRoom.z);
-    block(kitchen,0,-.099,0,4.67,.18,3.85,dark,false);
-    stonePaving(kitchen,0,0,4.67,3.85,631);
+    pavingBed(kitchen,0,4.67,3.85,.18);
+    stonePaving(kitchen,4.67,hallPavingDepth/2-kitchenRoom.z,1.925,631);
     block(kitchen,0,2.79,0,4.69,.22,3.94,matte('darkwood',2),false,.41);
     block(kitchen,0,1.40,1.948,4.69,2.80,.19,dark,false);
     fieldWall(kitchen,0,0,1.847,4.67,2.80,Math.PI,512);
@@ -621,7 +628,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 
   function buildRoom(){
     const wallH=3.65;
-    block(scene,0,-.075,-.05,11.99,.13,9.94,dark,false);
+    pavingBed(scene,-.05,11.99,9.94,.13);
     block(scene,0,wallH+.09,-.05,11.98,.2,9.94,matte('darkwood',3),false,.42);
     for(const door of [northDoorway,kitchenDoorway]){
       const left=door.x-door.half;
@@ -639,7 +646,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       {x:-kitchenDoorway.x,half:kitchenDoorway.half,height:2.27});
     fieldWall(scene,-5.812,0,0,9.66,wallH,Math.PI/2,197);
     fieldWall(scene,5.812,0,0,9.66,wallH,-Math.PI/2,249);
-    stonePaving(scene,0,0,11.75,9.7,389);
+    stonePaving(scene,11.75,-hallPavingDepth/2,hallPavingDepth/2,389);
 
     for(let i=0;i<7;i++){
       const z=-4.3+i*1.37;
