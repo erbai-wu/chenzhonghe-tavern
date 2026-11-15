@@ -1043,64 +1043,59 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
   }
 
-  function tunnelLantern(parent,x,y,z){
-    const node=group(parent,x,y,z);
-    const iron=matte('iron',3);
-    block(node,0,0,0,.22,.055,.20,iron,false,.30);
-    block(node,0,.30,0,.25,.06,.24,iron,false,.30);
-    block(node,0,.16,0,.128,.24,.126,new THREE.MeshBasicMaterial({color:0xffb967}),false);
-    for(const a of [-1,1])for(const b of [-1,1]){
-      block(node,a*.087,.16,b*.074,.021,.28,.021,iron,false);
+  let wallBrazierModel;
+  function wallBrazier(parent,x,y,z,yaw,brightness=2.55,range=4.8){
+    if(!wallBrazierModel){
+      const mount=new THREE.Group();
+      const iron=matte('iron',3),ash=matte('ash',2);
+      block(mount,0,-.078,.022,.177,.409,.053,iron,true,.34);
+      for(const yy of [-.238,.083]){
+        for(const xx of [-.046,.046]){
+          block(mount,xx,yy,.055,.032,.032,.022,iron,false,.23,Math.PI/4);
+        }
+      }
+
+      // Flat forged bars carry the weight back into the stone wall.
+      function brace(x,ay,az,by,bz){
+        const piece=block(mount,x,(ay+by)/2,(az+bz)/2,.041,.051,Math.hypot(by-ay,bz-az),
+          iron,false,.35);
+        piece.rotation.x=-Math.atan2(by-ay,bz-az);
+      }
+      for(const x of [-.068,.068]){
+        brace(x,-.234,.046,-.150,.384);
+        brace(x,-.304,.060,-.163,.332);
+      }
+      block(mount,0,-.174,.353,.245,.046,.197,iron,true,.34);
+
+      const bowl=group(mount,0,0,.356);
+      loft(bowl,[
+        [-.161,.113,.110],[-.126,.153,.148],[-.058,.219,.213],
+        [-.018,.249,.242],[.014,.247,.240],[.012,.226,.221],
+        [-.026,.211,.206],[-.129,.133,.129]
+      ],12,iron,.0026,Math.PI/12);
+      loft(bowl,[[-.122,.132,.126],[-.030,.174,.168]],10,ash,0);
+      for(const [px,pz,turn] of [[-.05,-.035,.27],[.055,.060,-.80],[.027,-.067,2.13]]){
+        const wood=group(bowl,px,-.021,pz,turn);
+        block(wood,0,0,0,.183,.041,.047,ash,true,.28,.09);
+      }
+      const ember=new THREE.MeshBasicMaterial({color:0xa83f1b});
+      for(const [px,pz] of [[-.088,.038],[.02,.065],[.080,-.043]]){
+        block(bowl,px,-.013,pz,.038,.011,.032,ember,false);
+      }
+      sprite(bowl,0,.174,0,.377,.393,stoveFire,[.35,1.92]);
+      wallBrazierModel=mount;
     }
-    block(node,0,.37,0,.044,.12,.044,iron,false);
-    const lamp=new THREE.PointLight(0xffb56f,2.55,4.1,2);
-    lamp.position.set(0,.20,0);
-    node.add(lamp);
+
+    const fixture=wallBrazierModel.clone(true);
+    fixture.name='wall-brazier';
+    fixture.position.set(x,y,z);
+    fixture.rotation.y=yaw;
+    parent.add(fixture);
+    const lamp=new THREE.PointLight(0xffa469,brightness,range,2);
+    lamp.position.set(0,.29,.378);
+    fixture.add(lamp);
     underground.lamps.push(lamp);
   }
-
-  function gateBrazier(parent,x,z,turn,brightness){
-    const node=group(parent,x,tunnelFloor,z,turn);
-    node.name='gate-brazier';
-    const stone=matte('hearth',3);
-    const iron=matte('iron',3);
-    loft(node,[
-      [0,.225,.215],[.054,.240,.229],[.132,.223,.213],[.157,.180,.175],
-      [.392,.157,.152],[.449,.207,.198],[.477,.205,.197]
-    ],8,stone,.0035,Math.PI/8);
-    loft(node,[
-      [.477,.137,.134],[.508,.186,.180],[.566,.246,.238],
-      [.595,.269,.260],[.621,.267,.258],[.620,.239,.231],
-      [.598,.227,.220],[.530,.158,.153]
-    ],12,iron,.0029,Math.PI/12);
-
-    const ash=matte('ash',2);
-    loft(node,[[.533,.154,.148],[.573,.176,.170]],10,ash,0);
-    const rng=random(Math.round(x*176));
-    for(let i=0;i<5;i++){
-      const turn=rng()*Math.PI;
-      const kindling=group(node,(rng()-.5)*.215,.579+i*.010,(rng()-.5)*.234,turn);
-      block(kindling,0,0,0,.185+rng()*.061,.039,.038,ash,true,.28,(rng()-.5)*.28);
-    }
-    const ember=new THREE.MeshBasicMaterial({color:0xa83f1b});
-    for(const [px,pz] of [[-.08,-.042],[.018,.084],[.083,-.052]]){
-      block(node,px,.578,pz,.052,.015,.036,ember,false);
-    }
-    for(const side of [-1,1]){
-      const loop=new THREE.Mesh(new THREE.TorusGeometry(.050,.008,5,10),iron);
-      loop.rotation.y=Math.PI*.5;
-      loop.position.set(side*.266,.565,0);
-      node.add(loop);
-      block(node,side*.251,.584,0,.027,.035,.033,iron,false);
-    }
-    sprite(node,0,.783,0,.410,.412,stoveFire,[.23,1.82]);
-    collider(node,0,0,.49,.48);
-    const lamp=new THREE.PointLight(0xffa164,brightness,4.15,2);
-    lamp.position.set(0,.91,0);
-    node.add(lamp);
-    underground.lamps.push(lamp);
-  }
-
 
 
   function makeGrate(parent,{x,z},service){
@@ -1211,8 +1206,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         block(parent,x+(i-2)*.148,.03,-57.66,.035,.65,.049,rail,false);
       }
     }
-    tunnelLantern(parent,serviceGate.x+.55,tunnelFloor+1.18,-52.9);
-    tunnelLantern(parent,42,tunnelFloor+1.28,-51.53);
+    wallBrazier(parent,serviceGate.x+1.59,tunnelFloor+1.48,serviceBank.maxZ,Math.PI);
+    wallBrazier(parent,42,tunnelFloor+1.54,serviceBank.maxZ,Math.PI,3.1,6.2);
     interactive.push({name:"查看干渠入河口",kind:'outfall',point:V(46.55,.02,-52.60),radius:1.13});
   }
 
@@ -1373,8 +1368,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     block(dock,pier.side*.30,.035,0,.56,.108,1.77,mats.floor,false);
     block(dock,pier.side*.30,.25,-.68,.16,.46,.16,matte('iron',3),true,.32);
-    const light=riverPoint(section,pier.side*(section.half+bankWidth-.22),-.49);
-    tunnelLantern(parent,light.x,landingFloor+1.36,light.z);
+    const wall=riverPoint(section,pier.side*(section.half+bankWidth),-.63);
+    if(inRect(oreEntrance,wall.x,wall.z))wall.z=oreEntrance.minZ-.79;
+    wallBrazier(parent,wall.x,landingFloor+1.58,wall.z,-pier.side*Math.PI/2,3.7,6.6);
   }
 
   function stoneFacetMesh(parent,triangles,material){
@@ -1867,6 +1863,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     passageFloor.mesh(parent,floor);
     ceilings.mesh(parent,floor);
     stoneFacetMesh(parent,walls,stone);
+    wallBrazier(parent,lairElbow.maxX-.04,landingFloor+1.57,-11.12,-Math.PI/2,2.05,4.6);
     for(const [x,z,sx,sy,sz,seed] of [
       [bankEdge+.06,minZ-.31,.38,1.62,.40,79],[bankEdge+.08,maxZ+.32,.50,1.35,.38,86],
       [bankEdge+.17,minZ-1.25,.50,.94,.48,31],[bankEdge+.14,maxZ+1.12,.40,.62,.54,47]
@@ -2025,7 +2022,16 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     for(let i=0;i<cap.length;i++)wall.push({
       points:[cap[i],cap[(i+1)%cap.length],[93.20,5.58,-6.57]],color:roofTone()
     });
-    stoneFacetMesh(parent,wall,stone);
+    const shell=stoneFacetMesh(parent,wall,stone);
+    shell.updateWorldMatrix(true,false);
+    for(const [x,z,dx,dz] of [[111.45,-4.65,1,0],[105.7,-18.45,0,-1]]){
+      const ray=new THREE.Raycaster(V(x,landingFloor+1.68,z),V(dx,0,dz),0,7);
+      const anchor=ray.intersectObject(shell,false)[0]?.point;
+      if(anchor){
+        wallBrazier(parent,anchor.x-dx*.015,anchor.y,anchor.z-dz*.015,
+          Math.atan2(-dx,-dz),2.6,7.4);
+      }
+    }
     hiddenLairPassage(parent,floor,stone);
     northRockPassage(parent,stone,flightRim);
 
@@ -2269,7 +2275,6 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     halo(0xa9b9bb,101.2,1.12,-10.05,30,16);
     halo(0xa68d78,94.1,.36,-11.1,19,14);
     halo(0x849caa,86.8,1.05,-4.3,26,17);
-    halo(0x718e91,118.07,-.33,-11.36,3.0,4.7);
     halo(0xa2b5c2,96.20,5.14,-28.43,45,13);
 
     for(const [x,z,size,seed,color,lit] of [
@@ -2319,7 +2324,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     for(const [start,end] of [[b.minZ,a.minZ],[a.maxZ,b.maxZ]]){
       block(parent,b.minX,.15,(start+end)/2,.19,4.30,end-start,mats.wet,false);
     }
-    tunnelLantern(parent,a.minX-.44,landingFloor+1.55,a.minZ-.32);
+    wallBrazier(parent,neckX,landingFloor+1.53,a.minZ,0,2.55,5.1);
   }
 
   function updateSleepingDragon(time){
@@ -2414,15 +2419,15 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     cavernMouth(parent,mats,true);
     cavernMouth(parent,mats,false);
     for(const pier of berths)bankLanding(parent,mats,pier);
-    for(const [x,z,c] of [[66.1,-72.4,0x98a584],[120.5,-76.0,0x899b89],
-      [65.9,16.1,0x84aaa3],[120.4,15.9,0xa6a387]]){
-      const lantern=new THREE.PointLight(c,25,15,2);
-      lantern.position.set(x,1.53,z);
-      parent.add(lantern);
-      underground.lamps.push(lantern);
+    const [west,east]=riverColumns;
+    const span=riverHalfWidth+bankWidth;
+    for(const [x,z,yaw] of [[west+span,-71.8,-Math.PI/2],[east-span,-70.7,Math.PI/2],
+      [west+span,9.7,-Math.PI/2],[east-span,9.2,Math.PI/2]]){
+      wallBrazier(parent,x,landingFloor+1.68,z,yaw,5.25,10.5);
     }
-    for(const [x,z] of [[47.9,-34.0],[63.4,-10.0],[121.7,-29.4],[137.8,-71.8]]){
-      tunnelLantern(parent,x,landingFloor+1.42,z);
+    for(const [x,z,yaw] of [[west-span,-34,Math.PI/2],[west+span,-9.7,-Math.PI/2],
+      [east-span,-29.4,Math.PI/2],[east+span,-68.4,-Math.PI/2]]){
+      wallBrazier(parent,x,landingFloor+1.56,z,yaw,3.18,6.5);
     }
     buildDragonLair(parent);
     buildOreReserve(parent,mats);
@@ -2446,7 +2451,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     block(parent,46.396,landingFloor+.055,markZ,.032,.040,.32,solid(0x9b5442),false);
     block(parent,48.31,landingFloor+.25,-16.38,.20,.50,.20,matte('iron',5),true,.25);
     block(parent,48.31,landingFloor+.49,-16.38,.31,.084,.27,matte('iron',3),true,.20);
-    tunnelLantern(parent,46.33,landingFloor+1.74,-17.98);
+    wallBrazier(parent,45.65,landingFloor+1.59,dockPad.minZ+.135,0,3.5,6.4);
     mooringBoat(parent);
     interactive.push({name:"查看系船石台",kind:'dock',point:V(48.30,landingFloor+.86,-16.36),radius:.96});
     interactive.push({name:"查看旧水位刻痕",kind:'water-mark',point:V(46.41,landingFloor+.055,markZ),radius:.86});
@@ -2467,9 +2472,16 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     block(parent,tunnelMouth.x,tunnelFloor+2.81,stairExitZ-.075,stairs[1].width,.46,.15,mats.wall,false);
     underground.passage=makeGrate(parent,passageGate,false);
     underground.service=makeGrate(parent,serviceGate,true);
-    gateBrazier(parent,passageGate.x-.82,passageGate.z+.58,-.15,1.93);
-    gateBrazier(parent,passageGate.x+.82,passageGate.z-1.06,.24,2.15);
-    tunnelLantern(parent,forkX+1.03,tunnelFloor+1.72,forkZ-.67);
+    wallBrazier(parent,passageGate.x-1.13,tunnelFloor+1.49,passageGate.z+.55,Math.PI/2,1.93);
+    wallBrazier(parent,passageGate.x+1.13,tunnelFloor+1.49,passageGate.z-1.04,-Math.PI/2,2.15);
+    for(const [x,z,yaw] of [
+      [7.53,-15.13,0],[14.1,-12.87,Math.PI],[19.46,-17.4,-Math.PI/2],
+      [forkX+1.47,forkZ-.65,-Math.PI/2],
+      [31.92,dockZ-1.23,0],[38.19,dockZ+1.23,Math.PI],
+      [forkX-1.13,-32.1,Math.PI/2],[forkX+1.13,-40.66,-Math.PI/2]
+    ]){
+      wallBrazier(parent,x,undergroundHeight(x,z)+1.54,z,yaw);
+    }
 
     const slate=group(parent,forkX+1.40,tunnelFloor+1.30,forkZ,Math.PI/2);
     block(slate,0,0,0,.49,.35,.052,matte('oak',2),true,.44);
@@ -2490,7 +2502,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     block(key,.16,0,0,.20,.037,.033,brass,false);
     block(key,.215,0,.03,.065,.037,.074,brass,false);
     interactive.push({name:"拿取检修门钥匙",kind:'service-key',point:V(serviceGate.x-.73,tunnelFloor+.95,-49.43),radius:.56,object:key});
-    tunnelLantern(parent,serviceGate.x+.75,tunnelFloor+1.65,-49.05);
+    wallBrazier(parent,serviceGate.x+1.13,tunnelFloor+1.51,-49.42,-Math.PI/2);
     canalScenery(parent,mats);
     riverScenery(parent,mats);
 
