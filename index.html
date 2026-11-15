@@ -632,180 +632,92 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const undergroundAreas=[...tunnelAreas,dockPad,stepPad,serviceBank];
   const rampStart=30.33,rampEnd=40.33;
 
-  // Points follow the flow. A bend may turn back north; world Z is not a river coordinate.
-  const riverKnots=[
-    [116,-128,5.3],[91,-128,5.8],[70,-128,5.9],[57,-121,5.9],
-    [53,-107,5.8],[59,-98,5.8],[75,-95,5.9],[92,-95,6.0],
-    [109,-93,5.8],[121,-87,5.48],[124,-77,5.42],[116,-69,5.9],
-    [102,-66,5.9],[85,-66,5.8],[69,-67,5.8],[55.60,-61.5,6.0],
-    [55.60,-42.1,6.0],[84,-42.1,5.8],[108,-42.5,5.8],[122,-35,5.8],
-    [127,-24,6.0],[122,-15,5.8],[110,-11,5.8],[93,-12,5.8],[80,-21,5.8],
-    [55.72,-29.1,6.0],[55.72,-3.4,6.0],[64.9,2.2,5.9],[79,4,5.9],
-    [103,4,5.9],[115,11,5.8],[120,22,5.8],[116,33,6.0],[104,38,5.9],
-    [86,37,5.9],[70,34,5.7],[60,38,5.8],[55,48,5.7],[56,60,5.7],
-    [65,68,5.8],[80,70,5.9],[103,66,5.8],[119,68,5.8],[128,77,5.8],
-    [129,88,5.6],[121,96,5.6],[110,98,5.35]
+  // Two north–south channels and two crosscuts meet at four navigable junctions.
+  const riverColumns=[55.72,129.72];
+  const riverCrosscuts=[-83,21];
+  const riverHalfWidth=6,bankWidth=2.44;
+  const riverReaches=[
+    ...riverColumns.map(x=>({x,z:-31.5,tx:0,tz:1,halfLength:76.5})),
+    ...riverCrosscuts.map(z=>({x:93,z,tx:1,tz:0,halfLength:58}))
   ];
-  const bankWidth=2.44;
   const canalProfile=[
     [-19,-55.72,-1.30],[-4,-55.72,-1.54],[12,-55.72,-1.86],
     [31,-55.14,-2.28],[42,-54.31,-2.56],[50.25,-52.32,-2.96]
   ];
-
-  function sampleRiver(knots){
-    const parts=[];
-    const lerp=(a,b,t)=>a.map((v,i)=>THREE.MathUtils.lerp(v,b[i],t));
-    const distance=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
-    let cursor=knots[0];
-    parts.push(cursor);
-    function line(to){
-      const count=Math.ceil(distance(cursor,to)/.74);
-      for(let i=1;i<=count;i++)parts.push(lerp(cursor,to,i/count));
-      cursor=to;
-    }
-    for(let i=1;i<knots.length-1;i++){
-      const a=knots[i-1],b=knots[i],c=knots[i+1];
-      const before=distance(a,b),after=distance(b,c);
-      const ix=(b[0]-a[0])/before,iz=(b[1]-a[1])/before;
-      const ox=(c[0]-b[0])/after,oz=(c[1]-b[1])/after;
-      const angle=Math.acos(clamp(ix*ox+iz*oz,-1,1));
-      if(angle<.038){line(b);continue;}
-      const slope=Math.tan(angle/2);
-      const trim=Math.min(15*slope,before*.485,after*.485);
-      const radius=trim/slope;
-      const sign=Math.sign(ix*oz-iz*ox);
-      const left=lerp(b,a,trim/before),right=lerp(b,c,trim/after);
-      const centerX=left[0]-iz*sign*radius,centerZ=left[1]+ix*sign*radius;
-      const bearing=Math.atan2(left[1]-centerZ,left[0]-centerX);
-      const count=Math.max(2,Math.ceil(radius*angle/.62));
-      line(left);
-      for(let j=1;j<=count;j++){
-        const t=j/count,heading=bearing+sign*angle*t;
-        parts.push([centerX+Math.cos(heading)*radius,centerZ+Math.sin(heading)*radius,
-          THREE.MathUtils.lerp(left[2],right[2],t)]);
-      }
-      cursor=right;
-    }
-    line(knots.at(-1));
-    let s=0;
-    return parts.map(([x,z,half],i)=>{
-      if(i)s+=distance(parts[i-1],parts[i]);
-      const previous=parts[Math.max(0,i-1)],next=parts[Math.min(parts.length-1,i+1)];
-      const span=distance(previous,next);
-      const tx=(next[0]-previous[0])/span,tz=(next[1]-previous[1])/span;
-      return {s,x,z,half,tx,tz,nx:tz,nz:-tx};
-    });
-  }
-
-  const riverCourse=sampleRiver(riverKnots);
-  const riverLength=riverCourse.at(-1).s;
-  const riverGridSize=12;
-  const riverGrid=new Map();
-  for(let i=1;i<riverCourse.length;i++){
-    const a=riverCourse[i-1],b=riverCourse[i];
-    const margin=Math.max(a.half,b.half)+bankWidth+2;
-    for(let iz=Math.floor((Math.min(a.z,b.z)-margin)/riverGridSize);
-      iz<=Math.floor((Math.max(a.z,b.z)+margin)/riverGridSize);iz++){
-      for(let ix=Math.floor((Math.min(a.x,b.x)-margin)/riverGridSize);
-        ix<=Math.floor((Math.max(a.x,b.x)+margin)/riverGridSize);ix++){
-        const key=ix+','+iz;
-        if(!riverGrid.has(key))riverGrid.set(key,[]);
-        riverGrid.get(key).push(i);
-      }
-    }
-  }
-
-  function riverSection(s){
-    if(s<=0||s>=riverLength){
-      const end=s<=0?riverCourse[0]:riverCourse.at(-1);
-      const t=s-end.s;
-      return {...end,s,x:end.x+end.tx*t,z:end.z+end.tz*t};
-    }
-    let low=1,high=riverCourse.length-1;
-    while(low<high){
-      const mid=(low+high)>>1;
-      if(riverCourse[mid].s<s)low=mid+1;else high=mid;
-    }
-    const a=riverCourse[low-1],b=riverCourse[low];
-    const lerp=(x,y)=>THREE.MathUtils.lerp(x,y,(s-a.s)/(b.s-a.s));
-    const tx=lerp(a.tx,b.tx),tz=lerp(a.tz,b.tz),norm=Math.hypot(tx,tz);
-    return {s,x:lerp(a.x,b.x),z:lerp(a.z,b.z),half:lerp(a.half,b.half),
-      tx:tx/norm,tz:tz/norm,nx:tz/norm,nz:-tx/norm};
-  }
-
-  function riverPoint({x,z,nx,nz,tx,tz},cross,along=0){
-    return {x:x+nx*cross+tx*along,z:z+nz*cross+tz*along};
-  }
-
-  function locateRiver(x,z){
-    const key=Math.floor(x/riverGridSize)+','+Math.floor(z/riverGridSize);
-    let best=null,bestDist=Infinity;
-    for(const i of riverGrid.get(key)||[]){
-      const a=riverCourse[i-1],b=riverCourse[i];
-      const vx=b.x-a.x,vz=b.z-a.z,len=b.s-a.s;
-      const fraction=clamp(((x-a.x)*vx+(z-a.z)*vz)/(len*len),0,1);
-      const dx=x-(a.x+vx*fraction),dz=z-(a.z+vz*fraction);
-      const dist=dx*dx+dz*dz;
-      if(dist>=bestDist)continue;
-      bestDist=dist;
-      best={s:a.s+len*fraction,side:(dx*vz-dz*vx)/len,
-        half:THREE.MathUtils.lerp(a.half,b.half,fraction)};
-    }
-    return best;
-  }
-
-  function stationAt(x,z){
-    const spot=locateRiver(x,z);
-    if(!spot)throw new Error('River feature must join the river.');
-    return spot.s;
-  }
-
-  const dockStation=stationAt(55.72,dockZ);
-  const dockRange=[stationAt(55.72,dockPad.minZ),stationAt(55.72,dockPad.maxZ)];
-  const bridgeRange=[stationAt(55.60,-55.40),stationAt(55.60,-49.35)];
-  const berths=[
-    {side:-1,s:dockStation,name:'系船石台',stone:true},
-    {side:1,s:dockStation,name:'对岸栈台'},
-    {side:1,s:stationAt(74,-128),name:'上游栈台'},
-    {side:-1,s:stationAt(101,4),name:'下游栈台'}
+  const lairEntrance={minX:64.10,maxX:71.25,minZ:-17.70,maxZ:-12.30};
+  const lairOutline=[
+    [70.1,-17.70],[73.9,-21.23],[84.6,-22.12],[95.8,-21.58],
+    [105.7,-19.1],[113.1,-15.5],[117.1,-8.0],[117.15,1.65],
+    [113.03,8.42],[104.7,11.33],[91.6,11.82],[78.9,9.36],
+    [72.48,4.9],[70.1,.13]
   ];
-  const riverReserves=[
-    {id:'lair',name:'大型魔物巢穴预留区',station:stationAt(92,-128),side:1,span:34,depth:14.1},
-    {id:'ore',name:'矿产资源预留区',station:stationAt(89,4),side:-1,span:29,depth:13.0}
-  ].map(reserve=>{
-    const section=riverSection(reserve.station);
-    return {...reserve,section,edge:section.half+bankWidth+.19,neck:4.35};
-  });
+  const oreEntrance={minX:138.1,maxX:143.55,minZ:-56.60,maxZ:-52.40};
+  const oreChamber={minX:143.50,maxX:164.20,minZ:-63.0,maxZ:-45.0};
+  const berths=[
+    {side:-1,x:riverColumns[0],z:dockZ,name:'系船石台',stone:true},
+    {side:1,x:riverColumns[0],z:dockZ,name:'巢穴侧栈台'},
+    {side:1,x:riverColumns[0],z:-64,name:'上游栈台'},
+    {side:1,x:riverColumns[1],z:-54.5,name:'矿洞侧栈台'}
+  ];
+
+  function alongReach(reach,x,z){
+    return (x-reach.x)*reach.tx+(z-reach.z)*reach.tz;
+  }
+
+  function acrossReach(reach,x,z){
+    return (x-reach.x)*reach.tz-(z-reach.z)*reach.tx;
+  }
+
+  function riverPoint({x,z,tx,tz},across,along=0){
+    return {x:x+tz*across+tx*along,z:z-tx*across+tz*along};
+  }
+
+  function reachRect(reach,halfWidth,extra=0){
+    const {x,z,tx,tz}=reach;
+    const along=reach.halfLength+extra;
+    const hx=Math.abs(tx)*along+Math.abs(tz)*halfWidth;
+    const hz=Math.abs(tz)*along+Math.abs(tx)*halfWidth;
+    return {minX:x-hx,maxX:x+hx,minZ:z-hz,maxZ:z+hz};
+  }
+
+  const riverWetRects=riverReaches.map(reach=>reachRect(reach,riverHalfWidth));
+  const riverBankRects=riverReaches.map(reach=>reachRect(reach,riverHalfWidth+bankWidth));
+
+  function inRiverWater(x,z){
+    return riverWetRects.some(rect=>inRect(rect,x,z));
+  }
+
+  function inRiverLand(x,z){
+    if(inRect(lairEntrance,x,z)||inRect(oreEntrance,x,z)||inRect(oreChamber,x,z))return true;
+    let inside=false;
+    for(let i=0,j=lairOutline.length-1;i<lairOutline.length;j=i++){
+      const [ax,az]=lairOutline[i],[bx,bz]=lairOutline[j];
+      if((az>z)!==(bz>z)&&x<(bx-ax)*(z-az)/(bz-az)+ax)inside=!inside;
+    }
+    return inside;
+  }
+
+  function onDockCut(x,z){
+    return x<riverColumns[0]&&z>dockPad.minZ&&z<dockPad.maxZ;
+  }
 
   function berthAt(pier){
-    const section=riverSection(pier.s);
+    const section={x:pier.x,z:pier.z,tx:0,tz:1,nx:1,nz:0,half:riverHalfWidth};
     const boat=riverPoint(section,pier.side*(section.half-1.20));
     const land=pier.stone?{x:48.18,z:dockZ}:riverPoint(section,pier.side*(section.half+.72));
     return {boat,land,section};
   }
 
-  function inRiverReserve(x,z){
-    for(const p of riverReserves){
-      const s=p.section;
-      const dx=x-s.x,dz=z-s.z;
-      const out=(dx*s.nx+dz*s.nz)*p.side-p.edge;
-      const along=Math.abs(dx*s.tx+dz*s.tz);
-      if(out>=-.36&&out<=p.neck&&along<=2.55)return true;
-      if(out>=p.neck&&out<=p.depth&&along<=p.span/2)return true;
-    }
-    return false;
-  }
-
   function riverHeight(x,z){
-    if(inRiverReserve(x,z))return landingFloor;
-    const hit=locateRiver(x,z);
-    if(!hit||hit.s<1.05||hit.s>riverLength-1.05)return null;
-    const sign=Math.sign(hit.side),offset=Math.abs(hit.side)-hit.half;
-    const dock=sign<0&&hit.s>dockRange[0]&&hit.s<dockRange[1];
-    if(!dock&&offset>=.042&&offset<=bankWidth)return landingFloor;
-    for(const berth of berths){
-      if(berth.stone||berth.side!==sign||Math.abs(hit.s-berth.s)>.95)continue;
-      if(offset>=-.81&&offset<.042)return landingFloor-.13;
+    if(inRiverLand(x,z))return landingFloor;
+    if(!inRiverWater(x,z)&&!onDockCut(x,z)&&riverBankRects.some(rect=>inRect(rect,x,z))){
+      return landingFloor;
+    }
+    for(const pier of berths){
+      if(pier.stone||Math.abs(pier.z-z)>.95)continue;
+      const edge=pier.x+pier.side*riverHalfWidth;
+      const shore=(x-edge)*pier.side;
+      if(shore>=-.81&&shore<=.045)return landingFloor-.13;
     }
     return null;
   }
@@ -815,14 +727,16 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
 
   function boatFits(x,z,heading){
-    const dx=-Math.sin(heading),dz=-Math.cos(heading);
-    for(const length of [-1.15,0,1.35]){
-      const hit=locateRiver(x+dx*length,z+dz*length);
-      if(!hit||hit.s<.85||hit.s>riverLength-.85||Math.abs(hit.side)>hit.half-.72)return false;
+    const forwardX=-Math.sin(heading),forwardZ=-Math.cos(heading);
+    for(const length of [-1.16,0,1.36]){
+      for(const side of [-.68,.68]){
+        if(!inRiverWater(x+forwardX*length+forwardZ*side,z+forwardZ*length-forwardX*side))return false;
+      }
     }
-    const middle=locateRiver(x,z);
-    for(const berth of berths){
-      if(!berth.stone&&Math.abs(middle.s-berth.s)<2.25&&middle.side*berth.side>middle.half-.84)return false;
+    for(const pier of berths){
+      if(pier.stone||Math.abs(pier.z-z)>=2.18)continue;
+      const fromEdge=riverHalfWidth-(x-pier.x)*pier.side;
+      if(fromEdge>-.60&&fromEdge<.83)return false;
     }
     return true;
   }
@@ -1246,11 +1160,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
 
   function cavernMouth(parent,mats,upstream){
-    const s=upstream?0:riverLength;
-    const section=riverSection(s);
+    const section={x:riverColumns[upstream?0:1],z:upstream?-108:45,tx:0,tz:1,half:riverHalfWidth};
     const beyond=upstream?-1:1;
-    const throat=riverSection(s+beyond*8.4);
-    const angle=Math.atan2(section.tx,section.tz);
+    const throat={...riverPoint(section,0,beyond*8.4),half:riverHalfWidth};
+    const angle=0;
     const mouth=group(parent,throat.x,0,throat.z,angle);
     const curtain=group(mouth,0,riverSurface,beyond*.39);
     const width=section.half+.75;
@@ -1360,94 +1273,748 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     tunnelLantern(parent,light.x,landingFloor+1.36,light.z);
   }
 
-  function reserveCavern(parent,mats,reserve){
-    const {section,side,edge,neck,depth,span}=reserve;
-    const mouth=riverPoint(section,side*edge);
-    const chamber=group(parent,mouth.x,landingFloor,mouth.z,Math.atan2(section.tx,section.tz));
-    const floor=(a,b,width)=>block(chamber,side*(a+b)/2,-.15,0,b-a,.30,width,mats.floor,false);
-    const roof=(a,b,width)=>block(chamber,side*(a+b)/2,4.69,0,b-a,.48,width,mats.vault,false);
-    floor(-.20,neck,5.10);
-    floor(neck,depth,span);
-    roof(-.20,neck,5.44);
-    roof(neck,depth,span+.38);
-    for(const direction of [-1,1]){
-      block(chamber,side*neck/2,2.22,direction*2.66,neck,.4+4.2,.22,mats.wet,false);
-      block(chamber,side*(neck+depth)/2,2.25,direction*(span/2+.09),depth-neck,4.56,.18,mats.wet,false);
-      const width=span/2-2.55;
-      block(chamber,side*(neck+.09),2.25,direction*(2.55+width/2),.18,4.56,width,mats.wet,false);
+  function stoneFacetMesh(parent,triangles,material){
+    const positions=[],colors=[];
+    for(const {points,color} of triangles){
+      for(const p of points){
+        positions.push(...p);
+        colors.push(color.r,color.g,color.b);
+      }
     }
-    block(chamber,side*(depth+.10),2.24,0,.20,4.59,span+.38,mats.wet,false);
-    for(const z of [-2.49,2.49]){
-      block(chamber,side*.18,1.38,z,.64,2.76,.46,mats.wall,true,.59);
+    const geometry=new THREE.BufferGeometry();
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+    geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+    geometry.computeVertexNormals();
+    const mesh=new THREE.Mesh(geometry,material);
+    mesh.receiveShadow=true;
+    parent.add(mesh);
+    return mesh;
+  }
+
+  function dragonTube(parent,rings,sides,material,palette,seed,belly=null){
+    const rng=random(seed);
+    const spine=rings.map(([x,y,z])=>V(x,y,z));
+    const grid=rings.map(([_x,_y,_z,vertical,lateral],i)=>{
+      const tangent=spine[Math.min(spine.length-1,i+1)].clone().sub(spine[Math.max(0,i-1)]).normalize();
+      const up=Math.abs(tangent.y)>.96?V(1,0,0):V(0,1,0);
+      up.addScaledVector(tangent,-up.dot(tangent)).normalize();
+      const side=tangent.clone().cross(up).normalize();
+      return Array.from({length:sides},(_,j)=>{
+        const angle=Math.PI*2*j/sides;
+        const texel=.96+rng()*.075;
+        return spine[i].clone().addScaledVector(up,Math.sin(angle)*vertical*texel)
+          .addScaledVector(side,Math.cos(angle)*lateral*texel).toArray();
+      });
+    });
+    const faces=[];
+    const shade=(j)=>{
+      const angle=Math.PI*2*(j+.5)/sides;
+      const choices=belly&&Math.sin(angle)<-.37?belly:palette;
+      return new THREE.Color(choose(choices,rng)).multiplyScalar(.88+rng()*.23);
+    };
+    for(let i=1;i<grid.length;i++)for(let j=0;j<sides;j++){
+      const k=(j+1)%sides;
+      const a=grid[i-1][j],b=grid[i][j],c=grid[i][k],d=grid[i-1][k];
+      faces.push({points:[a,b,c],color:shade(j)},{points:[a,c,d],color:shade(j)});
     }
-    block(chamber,side*.18,2.78,0,.61,.41,5.30,mats.wall,true,.59);
-    const lamp=riverPoint(section,side*(edge-.51),2.85);
-    tunnelLantern(parent,lamp.x,landingFloor+1.44,lamp.z);
-    const centre=riverPoint(section,side*(edge+(neck+depth)/2));
-    const fillLight=new THREE.PointLight(0xb5a181,20,12,2);
-    fillLight.position.set(centre.x,landingFloor+3.2,centre.z);
-    parent.add(fillLight);
-    underground.lamps.push(fillLight);
+    const end=grid.length-1;
+    for(let j=0;j<sides;j++){
+      const k=(j+1)%sides;
+      faces.push(
+        {points:[spine[0].toArray(),grid[0][k],grid[0][j]],color:shade(j)},
+        {points:[spine[end].toArray(),grid[end][j],grid[end][k]],color:shade(j)}
+      );
+    }
+    return stoneFacetMesh(parent,faces,material);
+  }
+
+  function sleepingWyvern(parent){
+    const root=group(parent,93.5,landingFloor+.15,-6.4,-.29);
+    root.name='sleeping-black-wyvern';
+    const skin=pixelLit(new THREE.MeshStandardMaterial({vertexColors:true,roughness:.92}));
+    const membrane=pixelLit(new THREE.MeshStandardMaterial({
+      vertexColors:true,roughness:.94,side:THREE.DoubleSide
+    }));
+    const charcoal=[0x201f20,0x292627,0x2b2724,0x35302b,0x211f1f];
+    const crown=[0x443d37,0x39342e,0x322f2a,0x4c4338];
+    const belly=[0x4b3c30,0x534135,0x40352e,0x5b493a];
+    const teeth=[0x80756a,0x736a5f,0x504a43];
+    const chest=group(root);
+    dragonTube(chest,[
+      [-2.93,.405,-.19,.26,.28],[-2.56,.443,-.14,.30,.31],[-2.18,.53,-.09,.39,.40],
+      [-1.65,.76,.01,.47,.55],[-1.04,.92,.045,.60,.68],[-.48,.94,.03,.68,.81],
+      [.17,.90,.008,.70,.86],[.80,.78,.04,.61,.77],[1.33,.62,.07,.49,.62],
+      [1.65,.47,.09,.32,.41]
+    ],13,skin,charcoal,731,belly);
+    dragonTube(root,[
+      [1.38,.57,.09,.44,.53],[1.76,.42,.17,.35,.44],[2.17,.33,.34,.285,.34],
+      [2.68,.26,.56,.216,.29],[3.22,.200,.71,.163,.220],[3.72,.158,.74,.114,.158],
+      [4.06,.128,.62,.076,.11],[4.34,.121,.43,.039,.068],[4.53,.115,.22,.004,.008]
+    ],10,skin,charcoal,430,belly);
+
+    const head=group(root);
+    dragonTube(head,[
+      [-4.27,.272,-.227,.139,.198],[-4.17,.34,-.229,.208,.26],[-3.94,.405,-.224,.231,.295],
+      [-3.65,.462,-.20,.287,.365],[-3.35,.463,-.172,.291,.399],[-3.10,.42,-.172,.264,.337],
+      [-2.86,.412,-.183,.228,.255]
+    ],11,skin,charcoal,512);
+    dragonTube(head,[
+      [-4.25,.112,-.226,.060,.188],[-4.09,.111,-.230,.083,.244],[-3.82,.124,-.210,.091,.273],
+      [-3.57,.157,-.190,.096,.328],[-3.29,.202,-.173,.113,.305],[-3.04,.244,-.173,.099,.233]
+    ],10,skin,belly,482);
+    for(const side of [-1,1]){
+      const p=(x,y,z)=>[x,y,-.205+side*z];
+      dragonTube(head,[
+        [...p(-3.94,.52,.216),.041,.062],[...p(-3.73,.644,.289),.061,.082],
+        [...p(-3.48,.685,.362),.083,.098],[...p(-3.24,.634,.387),.039,.069]
+      ],7,skin,crown,45+side);
+      dragonTube(head,[
+        [...p(-3.83,.515,.285),.012,.012],[...p(-3.70,.541,.335),.015,.020],
+        [...p(-3.56,.557,.361),.014,.021],[...p(-3.42,.558,.379),.007,.012]
+      ],5,skin,[0x161414,0x201918],65+side);
+      dragonTube(head,[
+        [...p(-4.215,.356,.166),.023,.029],[...p(-4.17,.372,.235),.017,.024],
+        [...p(-4.11,.379,.248),.006,.010]
+      ],5,skin,[0x161716,0x231b18],174+side);
+      dragonTube(head,[
+        [...p(-3.30,.688,.252),.142,.142],[...p(-3.108,.830,.341),.115,.119],
+        [...p(-2.842,1.00,.455),.085,.081],[...p(-2.528,1.075,.519),.053,.051],
+        [...p(-2.19,1.080,.55),.005,.007]
+      ],8,skin,crown,183+side);
+      dragonTube(head,[
+        [...p(-3.36,.488,.348),.099,.100],[...p(-3.073,.523,.489),.087,.076],
+        [...p(-2.79,.615,.601),.050,.042],[...p(-2.513,.662,.634),.006,.007]
+      ],7,skin,crown,707+side);
+      dragonTube(head,[
+        [...p(-3.19,.356,.347),.071,.074],[...p(-2.94,.389,.492),.047,.054],
+        [...p(-2.68,.436,.587),.006,.009]
+      ],6,skin,crown,472+side);
+      dragonTube(head,[
+        [...p(-3.20,.746,.126),.080,.079],[...p(-2.975,.869,.181),.059,.060],
+        [...p(-2.725,.916,.226),.005,.009]
+      ],6,skin,crown,330+side);
+    }
+
+    // A wyvern's two hind legs tuck under its flanks; the front limbs are its wings.
+    for(const side of [-1,1]){
+      dragonTube(root,[
+        [1.02,.62,side*.44,.359,.255],[.77,.58,side*.77,.298,.242],
+        [.91,.29,side*.92,.221,.170],[1.28,.184,side*.95,.128,.133],
+        [1.54,.122,side*1.006,.088,.119]
+      ],9,skin,charcoal,540+side);
+      dragonTube(root,[
+        [1.62,.115,side*.99,.079,.146],[1.31,.112,side*1.012,.089,.165],
+        [1.10,.092,side*1.05,.067,.159],[.94,.074,side*1.05,.032,.135]
+      ],8,skin,charcoal,445+side);
+      for(let digit=-1;digit<=1;digit++){
+        const z=side*(1.06+digit*.109);
+        dragonTube(root,[[1.03,.073,z,.049,.048],[.841,.061,z,.034,.040],
+          [.70,.037,z+.018*side,.005,.007]],6,skin,teeth,306+digit+side);
+      }
+    }
+
+    const plates=[
+      [-2.78,.74,-.18,.32],[-2.40,.80,-.14,.36],[-1.99,.96,-.08,.42],
+      [-1.51,1.22,.018,.45],[-1.06,1.50,.033,.47],[-.54,1.60,.029,.48],
+      [-.05,1.59,.035,.45],[.43,1.51,.055,.40],[.86,1.33,.065,.36],
+      [1.26,1.11,.103,.31],[1.63,.86,.135,.30],[2.03,.67,.265,.27],
+      [2.46,.51,.454,.235],[2.90,.427,.646,.19],[3.27,.354,.72,.16],
+      [3.60,.288,.744,.13],[3.94,.237,.675,.10],[4.23,.191,.527,.077]
+    ];
+    for(const [i,[x,y,z,h]] of plates.entries()){
+      dragonTube(i<11?chest:root,[
+        [x-h*.44,y-.05,z,h*.19,h*.29],[x+.035,y+.027,z,h*.20,h*.25],
+        [x+h*.47,y+h*.61,z+.012,h*.097,h*.104],[x+h*.94,y+h*.87,z+.015,.005,.008]
+      ],6,skin,crown,912+i);
+    }
+
+    const wings=[];
+    for(const side of [-1,1]){
+      const wing=group(root);
+      wings.push({side,wing});
+      const pts=p=>[p[0],p[1],p[2]*side];
+      const shoulder=[-1.29,1.01,.44],elbow=[-1.64,1.63,.721],wrist=[-.69,1.88,1.03];
+      dragonTube(wing,[
+        [...pts(shoulder),.194,.188],[...pts(elbow),.151,.135],
+        [...pts([-.99,1.77,.933]),.133,.115],[...pts(wrist),.092,.103]
+      ],8,skin,charcoal,745+side);
+      const fingers=[
+        [[-.17,1.98,1.09],[.77,1.91,1.20],[1.91,1.62,1.32],[2.71,1.31,1.35]],
+        [[.02,1.84,1.25],[.91,1.70,1.49],[1.82,1.37,1.65],[2.44,1.05,1.69]],
+        [[-.055,1.71,1.34],[.72,1.47,1.65],[1.49,1.19,1.87],[2.01,.76,1.75]],
+        [[-.28,1.60,1.40],[.26,1.32,1.62],[.93,1.02,1.70],[1.56,.66,1.48]],
+        [[-.46,1.47,1.21],[-.06,1.15,1.41],[.40,.884,1.39],[.93,.605,1.14]]
+      ];
+      const wingRng=random(37+side);
+      const tones=[0x431e21,0x542628,0x59282b,0x3f2323,0x642b2d,0x4d2224];
+      const triangles=[];
+      const between=(a,b,t)=>a.map((n,i)=>THREE.MathUtils.lerp(n,b[i],t));
+      for(let finger=0;finger<fingers.length;finger++){
+        const rib=fingers[finger];
+        dragonTube(wing,[[...pts(wrist),.061,.056],
+          ...rib.map((p,i)=>[...pts(p),[.052,.039,.023,.005][i],[.049,.034,.021,.005][i]])],
+          6,skin,crown,57+finger+side);
+        if(finger===0)continue;
+        const other=fingers[finger-1];
+        const grid=[wrist];
+        const fan=[];
+        const color=()=>new THREE.Color(choose(tones,wingRng)).multiplyScalar(.77+wingRng()*.35);
+        for(let row=0;row<rib.length;row++){
+          const a=other[row],b=rib[row];
+          const middle=between(a,b,.5);
+          if(row===rib.length-1){
+            const edge=between(middle,between(other[row-1],rib[row-1],.5),.51);
+            fan.push([a,edge,b]);
+          }else{
+            middle[1]-=.029*(row+1);
+            fan.push([a,middle,b]);
+          }
+        }
+        for(let col=0;col<2;col++)triangles.push({points:[grid[0],fan[0][col],fan[0][col+1]].map(pts),color:color()});
+        for(let row=1;row<fan.length;row++)for(let col=0;col<2;col++){
+          const a=fan[row-1][col],b=fan[row][col],c=fan[row][col+1],d=fan[row-1][col+1];
+          triangles.push({points:[a,b,c].map(pts),color:color()},{points:[a,c,d].map(pts),color:color()});
+        }
+      }
+      stoneFacetMesh(wing,triangles,membrane);
+      dragonTube(wing,[[...pts(wrist),.062,.066],[...pts([-.73,2.024,1.095]),.058,.049],
+        [...pts([-.90,2.092,1.118]),.031,.026],[...pts([-1.03,2.056,1.13]),.006,.007]],
+        6,skin,crown,13+side);
+    }
+
+    collider(root,.12,.04,3.5,2.12);
+    collider(root,-2.96,-.17,2.40,.85);
+    const tail=group(root,2.76,0,.50,-.12);
+    collider(tail,0,0,2.37,.66);
+    root.updateWorldMatrix(true,false);
+    interactive.push({name:'观察卧睡的黑龙',kind:'sleeping-dragon',point:root.localToWorld(V(-3.83,.47,-.26)),
+      radius:.86,range:4.6});
+    return {root,chest,head,wings};
+  }
+
+  let caveAudio=null;
+  function armCaveAudio(){
+    const Context=window.AudioContext||window.webkitAudioContext;
+    if(!Context||caveAudio)return;
+    try{
+      const ctx=new Context();
+      const samples=ctx.createBuffer(1,ctx.sampleRate*3,ctx.sampleRate);
+      const noise=samples.getChannelData(0);
+      const rng=random(318);
+      for(let i=0;i<noise.length;i++)noise[i]=(rng()-.5)*.78;
+      const source=ctx.createBufferSource();
+      source.buffer=samples;
+      source.loop=true;
+      function layer(type,hz,gainValue){
+        const filter=ctx.createBiquadFilter();
+        filter.type=type;
+        filter.frequency.value=hz;
+        const output=ctx.createGain();
+        output.gain.value=gainValue;
+        source.connect(filter).connect(output).connect(ctx.destination);
+        return output.gain;
+      }
+      const room=layer('lowpass',265,0);
+      const breath=layer('bandpass',91,0);
+      source.start();
+      caveAudio={ctx,room,breath,nextDrip:0};
+      ctx.resume().catch(()=>{});
+    }catch(_){
+      // The lair remains playable on devices without Web Audio.
+    }
+  }
+
+  function caveSound(swell){
+    if(!caveAudio||caveAudio.ctx.state!=='running')return;
+    const {ctx,room,breath}=caveAudio;
+    const listening=started&&inRiverLand(eye.x,eye.z)&&eye.x<119;
+    const near=listening?clamp(1-Math.hypot(eye.x-93.5,eye.z+6.4)/15,0,1):0;
+    room.setTargetAtTime(listening?.063:0,ctx.currentTime,.37);
+    breath.setTargetAtTime(near*(.026+.33*swell),ctx.currentTime,.18);
+    if(!listening||ctx.currentTime<caveAudio.nextDrip)return;
+    caveAudio.nextDrip=ctx.currentTime+3.0+Math.random()*5.5;
+    const drip=ctx.createOscillator(),echo=ctx.createGain();
+    drip.type='sine';
+    drip.frequency.setValueAtTime(740+Math.random()*490,ctx.currentTime);
+    drip.frequency.exponentialRampToValueAtTime(184,ctx.currentTime+.135);
+    echo.gain.setValueAtTime(.019,ctx.currentTime);
+    echo.gain.exponentialRampToValueAtTime(.00012,ctx.currentTime+.42);
+    drip.connect(echo).connect(ctx.destination);
+    drip.start();
+    drip.stop(ctx.currentTime+.44);
+  }
+
+  function lairRock(parent,x,y,z,sx,sy,sz,seed,material){
+    const rng=random(seed);
+    const radii=Array.from({length:7},()=>.74+rng()*.32);
+    const cap=Array.from({length:7},()=>.59+rng()*.35);
+    const points=(i,y,scale,lift)=>[
+      Math.cos(i/7*Math.PI*2)*radii[i]*sx*scale,
+      y+(rng()-.5)*lift,
+      Math.sin(i/7*Math.PI*2)*radii[i]*sz*scale
+    ];
+    const bottom=radii.map((_,i)=>points(i,-.09*sy,.93,.07*sy));
+    const middle=radii.map((_,i)=>points(i,.34*sy,1.03,.22*sy));
+    const top=radii.map((_,i)=>points(i,.80*sy,cap[i],.20*sy));
+    const rings=[bottom,middle,top];
+    const stone=[
+      0x292d2c,0x3e403c,0x343633,0x4b4b43,0x353a38,0x2d332f
+    ];
+    const shade=()=>new THREE.Color(choose(stone,rng)).multiplyScalar(.85+rng()*.33);
+    const faces=[];
+    for(let i=0;i<7;i++){
+      const j=(i+1)%7;
+      faces.push({points:[top[i],[.12*sx,sy,-.12*sz],top[j]],color:shade()});
+      for(let q=0;q<2;q++){
+        const a=rings[q][i],b=rings[q][j],c=rings[q+1][i],d=rings[q+1][j];
+        faces.push({points:[a,c,b],color:shade()},{points:[b,c,d],color:shade()});
+      }
+    }
+    const stoneNode=stoneFacetMesh(parent,faces,material);
+    stoneNode.position.set(x,y,z);
+    stoneNode.rotation.y=rng()*Math.PI*2;
+    return stoneNode;
+  }
+
+  function cavernGround(){
+    const image=canvas(128,128),draw=image.getContext('2d'),rng=random(7219);
+    const pixels=draw.createImageData(128,128);
+    const field=Array.from({length:8},()=>Array.from({length:8},()=>rng()));
+    const sample=(a,b)=>field[a%8][b%8];
+    for(let z=0;z<128;z++)for(let x=0;x<128;x++){
+      const i=Math.floor(x/16),j=Math.floor(z/16);
+      const tx=(x%16)/16,tz=(z%16)/16;
+      const v=THREE.MathUtils.lerp(THREE.MathUtils.lerp(sample(i,j),sample(i+1,j),tx),
+        THREE.MathUtils.lerp(sample(i,j+1),sample(i+1,j+1),tx),tz);
+      const grit=(x*5+z*13)%23===0?14:(rng()-.5)*12;
+      const shade=11*v+grit+(Math.sin((x+z*.65)*.49)> .91?3:0);
+      const address=(z*128+x)*4;
+      pixels.data[address]=43+shade;
+      pixels.data[address+1]=39+shade;
+      pixels.data[address+2]=34+shade;
+      pixels.data[address+3]=255;
+    }
+    draw.putImageData(pixels,0,0);
+    const map=texture(image);
+    map.wrapS=map.wrapT=THREE.RepeatWrapping;
+    map.minFilter=THREE.LinearMipmapLinearFilter;
+    return pixelLit(new THREE.MeshStandardMaterial({map,roughness:1,side:THREE.DoubleSide}));
+  }
+
+  function darkCavern(parent,mats){
+    const stone=pixelLit(new THREE.MeshStandardMaterial({vertexColors:true,roughness:.98,side:THREE.DoubleSide}));
+    const floor=cavernGround();
+    const passage=lairEntrance;
+    const throat=quadBatch();
+    const a=64.16,b=70.10,l=passage.minZ,r=passage.maxZ;
+    throat.quad([[a,landingFloor,l],[a,landingFloor,r],[b,landingFloor,r],[b,landingFloor,l]]);
+    throat.mesh(parent,floor);
+    const throatRoof=quadBatch();
+    throatRoof.quad([[a,1.58,l],[b,2.21,l],[b,2.21,r],[a,1.58,r]]);
+    const floorRock=[0x292d2a,0x30332f,0x3a3a34,0x343631,0x3d3c33,0x363c36];
+    const rng=random(2732),wall=[];
+    const tint=(y)=>new THREE.Color(choose(floorRock,rng)).multiplyScalar(y);
+    const points=lairOutline.map(([x,z])=>new THREE.Vector2(x,z));
+    const indices=THREE.ShapeUtils.triangulateShape(points,[]);
+    const vertices=[],uvs=[];
+    for(const tri of indices){
+      for(const i of tri){
+        const [x,z]=lairOutline[i];
+        vertices.push(x,landingFloor,z);
+        uvs.push(x/5,z/5);
+      }
+    }
+    const geometry=new THREE.BufferGeometry();
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
+    geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+    geometry.computeVertexNormals();
+    parent.add(new THREE.Mesh(geometry,floor));
+
+    const rim=[];
+    for(let i=0;i<lairOutline.length;i++){
+      const [ax,az]=lairOutline[i],[bx,bz]=lairOutline[(i+1)%lairOutline.length];
+      const count=Math.max(2,Math.ceil(Math.hypot(bx-ax,bz-az)/2.4));
+      for(let j=0;j<count;j++){
+        const t=j/count;
+        rim.push([THREE.MathUtils.lerp(ax,bx,t),THREE.MathUtils.lerp(az,bz,t)]);
+      }
+    }
+    const profile=rim.map(([x,z])=>{
+      const vx=(92-x)*.021,vz=(-5-z)*.019;
+      return [[x,landingFloor,z],
+        [x+vx*(.2+rng()),-.39+rng()*.81,z+vz*(.2+rng())],
+        [x+vx*(1.3+rng()),2.02+rng()*.69,z+vz*(1.3+rng())],
+        [x+vx*(2.9+rng()),4.32+rng()*.72,z+vz*(2.9+rng())]];
+    });
+    for(let i=0;i<rim.length;i++){
+      const j=(i+1)%rim.length;
+      const aa=profile[i],bb=profile[j];
+      const nearDoor=Math.abs(rim[i][0]-b)<.01&&Math.abs(rim[j][0]-b)<.01&&
+        Math.min(rim[i][1],rim[j][1])<passage.maxZ+.06;
+      if(!nearDoor){
+        for(let row=1;row<4;row++){
+          const u=aa[row-1],v=bb[row-1],w=aa[row],p=bb[row];
+          wall.push({points:[u,v,w],color:tint(.88+rng()*.28)},
+            {points:[v,p,w],color:tint(.84+rng()*.34)});
+        }
+      }else{
+        wall.push({points:[aa[2],bb[2],aa[3]],color:tint(.93)},
+          {points:[bb[2],bb[3],aa[3]],color:tint(1.06)});
+      }
+    }
+    // Broken rock layers taper into an irregular crown, with no single hub of long triangles.
+    const roofRings=[profile.map(p=>p[3])];
+    for(const [i,radius] of [.68,.38,.12].entries()){
+      roofRings.push(rim.map(([x,z])=>{
+        const px=93.4+(x-93.4)*radius+(rng()-.5)*.74;
+        const pz=-6.5+(z+6.5)*radius+(rng()-.5)*.64;
+        const y=4.53+i*.31+Math.sin(px*.38+pz*.56)*.24+rng()*.32;
+        return [px,y,pz];
+      }));
+    }
+    const roofTone=()=>new THREE.Color(choose([0x262824,0x2b2e29,0x2d302c,0x292a26],rng))
+      .multiplyScalar(.94+rng()*.16);
+    for(let band=1;band<roofRings.length;band++){
+      const outer=roofRings[band-1],inner=roofRings[band];
+      for(let i=0;i<rim.length;i++){
+        const j=(i+1)%rim.length;
+        wall.push({points:[outer[i],outer[j],inner[j]],color:roofTone()},
+          {points:[outer[i],inner[j],inner[i]],color:roofTone()});
+      }
+    }
+    const cap=roofRings.at(-1);
+    for(let i=0;i<cap.length;i++)wall.push({
+      points:[cap[i],cap[(i+1)%cap.length],[93.20,5.36,-6.57]],color:roofTone()
+    });
+    for(const z of [l,r]){
+      const flare=z===l?-.04:.041;
+      for(let i=0;i<5;i++){
+        const x0=a+(b-a)*i/5,x1=a+(b-a)*(i+1)/5;
+        const crest0=1.57+i*.13,crest1=crest0+.13;
+        const x=(x0+x1)/2;
+        wall.push({points:[[x0,landingFloor,z],[x1,landingFloor,z],[x,crest0*.37,z+flare]],color:tint(.97)},
+          {points:[[x0,landingFloor,z],[x,crest0*.37,z+flare],[x0,crest0,z]],color:tint(.88)},
+          {points:[[x,crest0*.37,z+flare],[x1,landingFloor,z],[x1,crest1,z]],color:tint(.91)},
+          {points:[[x0,crest0,z],[x,crest0*.37,z+flare],[x1,crest1,z]],color:tint(.83)});
+      }
+    }
+    throatRoof.mesh(parent,mats.vault);
+    stoneFacetMesh(parent,wall,stone);
+
+    for(let i=0;i<rim.length;i+=2){
+      const [x,z]=rim[i];
+      if(x<71.65&&z< -11.10)continue;
+      const towardsX=(92-x)*.056,towardsZ=(-5-z)*.051;
+      const scale=.6+rng()*1.35;
+      lairRock(parent,x+towardsX,landingFloor,z+towardsZ,
+        scale,scale*(.41+rng()),scale*(.63+rng()*.30),880+i,stone);
+    }
+    for(const [x,z,sx,sy,sz] of [[72.8,-16.89,1.10,1.22,.69],[74.2,-11.64,.92,1.76,.72],
+      [83.9,-14.33,1.53,1.28,1.01],[105.9,-3.18,1.40,.65,1.41],
+      [97.43,8.6,1.61,.93,1.09],[88.55,7.5,.88,.35,.66],[80.7,1.34,.98,1.66,1.11]]){
+      const rock=lairRock(parent,x,landingFloor,z,sx,sy,sz,Math.round(x*109),stone);
+      collider(rock,0,0,sx*1.27,sz*1.27);
+    }
+    const shelf=group(parent,99.6,landingFloor,-14.7);
+    for(let i=0;i<9;i++){
+      const x=i*1.17-.9,z=(rng()-.5)*1.45;
+      lairRock(shelf,x,0,z,1.2+rng()*.44,1.49+rng()*.8,.69+rng()*.41,8950+i,stone);
+    }
+    collider(shelf,3.50,0,9.3,1.23);
+    return stone;
+  }
+
+  function wyvernNest(parent,dragon,stone){
+    const root=group(parent,dragon.root.position.x,landingFloor+.019,dragon.root.position.z,-.29);
+    const burnt=[0x2c251e,0x28211c,0x312a23,0x2a231e,0x302820];
+    const rng=random(9205);
+    const dirt=[];
+    const shape=[];
+    for(let i=0;i<28;i++){
+      const ang=i*Math.PI/14,rough=.82+rng()*.28;
+      shape.push([Math.cos(ang)*4.69*rough,.020+rng()*.035,Math.sin(ang)*2.36*rough]);
+    }
+    for(let i=0;i<shape.length;i++){
+      const j=(i+1)%shape.length;
+      dirt.push({points:[[.20,.091,-.125],shape[j],shape[i]],color:new THREE.Color(choose(burnt,rng))});
+    }
+    const litter=[];
+    for(let i=0;i<262;i++){
+      const ang=rng()*Math.PI*2,r=.31+Math.sqrt(rng())*.74;
+      const x=Math.cos(ang)*r*4.18,z=Math.sin(ang)*r*1.91;
+      const y=.041+(1-r)*.096+rng()*.045;
+      const length=.18+rng()*.46,bearing=ang+(.34+rng()*.76)*Math.PI;
+      const tip=[x+Math.cos(bearing)*length,y+rng()*.067,z+Math.sin(bearing)*length];
+      const w=.008+rng()*.017;
+      litter.push({points:[[x-w,y,z],[x+w,y+.012,z+.009],tip],
+        color:new THREE.Color(choose([0x544432,0x6c5640,0x41362b,0x75624c,0x352f27],rng))});
+    }
+    stoneFacetMesh(root,dirt,stone);
+    stoneFacetMesh(root,litter,stone);
+
+    const bone=matte('wax',1);
+    for(const [x,z,len,yaw] of [[-2.91,-1.87,.76,-.24],[2.24,1.63,.52,.44],
+      [-3.58,1.33,.48,-.70],[3.08,-1.81,.82,.51]]){
+      const shard=group(root,x,.13,z,yaw);
+      dragonTube(shard,[[-len/2,.02,0,.053,.057],[-len*.37,.031,0,.065,.058],
+        [-.081,0,.018,.039,.039],[len*.28,.017,-.008,.046,.051],
+        [len/2,.030,.016,.061,.074]],7,stone,[0x8c806a,0x79735e,0x978973],93+Math.round(len*10));
+      for(const sign of [-1,1]){
+        const joint=new THREE.Mesh(new THREE.IcosahedronGeometry(.076,0),bone);
+        joint.position.set(sign*(len*.41),.024,.015*sign);
+        joint.scale.set(1.2,.66,.92);
+        shard.add(joint);
+      }
+    }
+    const skull=group(root,-3.76,.123,-1.81,.33);
+    dragonTube(skull,[[-.31,.105,0,.060,.090],[-.24,.125,0,.104,.133],[-.03,.156,0,.139,.157],
+      [.14,.152,.022,.121,.134],[.24,.109,.032,.083,.098]],8,stone,
+      [0x928875,0x7c735e,0xa09277],54);
+    for(const side of [-1,1]){
+      const socket=new THREE.Mesh(new THREE.SphereGeometry(.067,7,5),solid(0x29231d));
+      socket.position.set(-.123,.177,side*.127);
+      socket.scale.set(1.36,.80,.52);
+      skull.add(socket);
+    }
+  }
+
+  function lairAir(parent,dragon){
+    const mist=canvas(64,64),ctx=mist.getContext('2d'),rng=random(5036);
+    for(let i=0;i<8;i++){
+      const x=20+rng()*24,y=19+rng()*23,r=12+rng()*10;
+      const gradient=ctx.createRadialGradient(x,y,0,x,y,r);
+      gradient.addColorStop(0,'rgba(236,243,238,.25)');
+      gradient.addColorStop(1,'rgba(236,243,238,0)');
+      ctx.fillStyle=gradient;
+      ctx.fillRect(x-r,y-r,r*2,r*2);
+    }
+    const cloud=texture(mist);
+    cloud.minFilter=THREE.LinearFilter;
+    cloud.magFilter=THREE.LinearFilter;
+    const breath=[];
+    for(let i=0;i<6;i++){
+      const material=new THREE.SpriteMaterial({map:cloud,color:0xaec2bb,transparent:true,
+        depthWrite:false,opacity:0,blending:THREE.NormalBlending});
+      const sprite=new THREE.Sprite(material);
+      parent.add(sprite);
+      breath.push(sprite);
+    }
+    dragon.root.updateWorldMatrix(true,false);
+    const muzzle=dragon.root.localToWorld(V(-4.30,.28,-.23));
+    const exhale=V(-1,.115,0).transformDirection(dragon.root.matrixWorld);
+
+    const cone=new THREE.Mesh(new THREE.ConeGeometry(2.65,6.28,22,1,true),
+      new THREE.ShaderMaterial({
+        side:THREE.DoubleSide,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+        uniforms:{clock:underground.waterTime},
+        vertexShader:`
+          varying vec2 beamUV;
+          void main(){beamUV=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}
+        `,
+        fragmentShader:`
+          varying vec2 beamUV;
+          uniform float clock;
+          void main(){
+            float grain=.6+.4*sin(beamUV.x*101.0+sin(beamUV.y*9.0-clock*.4));
+            float fade=smoothstep(.01,.36,beamUV.y)*(1.0-smoothstep(.87,1.0,beamUV.y));
+            gl_FragColor=vec4(.44,.66,.70,fade*grain*.042);
+          }
+        `
+      }));
+    cone.position.set(96.30,1.45,-5.02);
+    cone.rotation.z=-.22;
+    parent.add(cone);
+
+    const dust=[];
+    const dustPositions=new Float32Array(52*3);
+    for(let i=0;i<52;i++){
+      const y=rng(),a=rng()*Math.PI*2,r=Math.sqrt(rng())*(1.95-y*1.41);
+      dust.push([96.15+Math.cos(a)*r+(y-.5)*1.24,-1.62+y*5.92,-5.01+Math.sin(a)*r,rng()*6.28]);
+    }
+    const motes=new THREE.BufferGeometry();
+    const moving=new THREE.BufferAttribute(dustPositions,3).setUsage(THREE.DynamicDrawUsage);
+    motes.setAttribute('position',moving);
+    const particles=new THREE.Points(motes,new THREE.PointsMaterial({
+      color:0xa4beac,size:.065,map:cloud,transparent:true,opacity:.51,depthWrite:false
+    }));
+    particles.frustumCulled=false;
+    parent.add(particles);
+    return {breath,muzzle,exhale,dust,moving};
+  }
+
+  function buildDragonLair(parent,mats){
+    const cavern=group(parent);
+    const stone=darkCavern(cavern,mats);
+    tunnelLantern(cavern,66.20,-.72,-17.20);
+    tunnelLantern(cavern,70.71,-.83,-13.00);
+    const shaft=new THREE.SpotLight(0xbbd0ce,73,24,.58,.87,1.40);
+    shaft.position.set(97.1,4.89,-5.03);
+    shaft.target.position.set(91.73,landingFloor+.13,-6.31);
+    cavern.add(shaft,shaft.target);
+    underground.lamps.push(shaft);
+    const slate=new THREE.PointLight(0xa6b8ad,23.5,19.2,1.8);
+    slate.position.set(88.9,1.53,-7.1);
+    cavern.add(slate);
+    underground.lamps.push(slate);
+    const rim=new THREE.PointLight(0xb08e79,18,15.4,1.9);
+    rim.position.set(97.7,.82,-9.95);
+    cavern.add(rim);
+    underground.lamps.push(rim);
+    const bounce=new THREE.PointLight(0x888f7b,15.8,17.4,2);
+    bounce.position.set(79.9,1.2,-8.99);
+    cavern.add(bounce);
+    underground.lamps.push(bounce);
+
+    const ledges=quadBatch();
+    for(const [x,z,rx,rz] of [[80.6,-.57,1.50,.72],[106.7,4.28,3.05,1.30],[99.6,-15.1,2.15,.96]]){
+      const edges=Array.from({length:11},(_,i)=>{
+        const a=i*Math.PI*2/11,rough=.88+.13*Math.sin(i*4.765+x);
+        return [x+Math.cos(a)*rx*rough,landingFloor+.011,z+Math.sin(a)*rz*rough];
+      });
+      for(let i=0;i<edges.length;i++){
+        const a=edges[i],b=edges[(i+1)%edges.length],c=[x,landingFloor+.011,z];
+        ledges.quad([c,b,a,a]);
+      }
+    }
+    ledges.mesh(cavern,waterMaterial(.28,.94,0x142726,0x547c75));
+    const dragon=sleepingWyvern(cavern);
+    wyvernNest(cavern,dragon,stone);
+    const air=lairAir(cavern,dragon);
+    underground.lair={dragon,air};
+  }
+
+  function buildOreReserve(parent,mats){
+    const a=oreEntrance,b=oreChamber,depth=b.maxX-b.minX,width=b.maxZ-b.minZ;
+    const x=(b.minX+b.maxX)/2,z=(b.minZ+b.maxZ)/2;
+    const neckX=(a.minX+b.minX)/2,neckWidth=a.maxZ-a.minZ;
+    const neckDepth=b.minX-a.minX;
+    const neckZ=(a.maxZ+a.minZ)/2;
+    block(parent,neckX,landingFloor-.16,neckZ,neckDepth,.32,neckWidth,mats.floor,false);
+    block(parent,neckX,.15,a.minZ-.10,neckDepth,4.30,.20,mats.wet,false);
+    block(parent,neckX,.15,a.maxZ+.10,neckDepth,4.30,.20,mats.wet,false);
+    block(parent,neckX,2.31,neckZ,neckDepth,.29,neckWidth+.38,mats.vault,false);
+    block(parent,x,landingFloor-.15,z,depth,.30,width,mats.floor,false);
+    block(parent,x,2.32,z,depth,.30,width,mats.vault,false);
+    for(const edge of [b.minZ,b.maxZ]){
+      block(parent,x,.15,edge,depth,4.30,.20,mats.wet,false);
+    }
+    block(parent,b.maxX,.15,z,.19,4.30,width,mats.wet,false);
+    for(const [start,end] of [[b.minZ,a.minZ],[a.maxZ,b.maxZ]]){
+      block(parent,b.minX,.15,(start+end)/2,.19,4.30,end-start,mats.wet,false);
+    }
+    tunnelLantern(parent,a.minX-.44,landingFloor+1.55,a.minZ-.32);
+  }
+
+  function updateSleepingDragon(time){
+    const lair=underground.lair;
+    if(!lair)return;
+    const {dragon,air}=lair;
+    const cycle=time*.0011;
+    const swell=(1-Math.cos(cycle))/2;
+    caveSound(swell);
+    dragon.chest.scale.set(1,1+swell*.029,1+swell*.039);
+    dragon.head.position.y=swell*.012;
+    for(const {side,wing} of dragon.wings){
+      wing.rotation.x=side*(swell*.016);
+      wing.position.y=swell*.009;
+    }
+    for(const [i,puff] of air.breath.entries()){
+      const age=((time/1000+4.22-i*.16)%5.72+5.72)%5.72;
+      const fade=age>1.89?0:Math.sin(Math.PI*age/1.89);
+      puff.visible=fade>.015;
+      puff.material.opacity=fade*.139;
+      puff.position.copy(air.muzzle).addScaledVector(air.exhale,.54+age*.82+i*.02);
+      puff.position.y+=age*.087+i*.021;
+      puff.position.z+=Math.sin(time*.001+i*1.7)*.14;
+      puff.scale.setScalar(.30+age*.28);
+    }
+    for(const [i,[x,y,z,phase]] of air.dust.entries()){
+      air.moving.setXYZ(i,x+Math.sin(time*.00031+phase)*.19,
+        y+Math.cos(time*.00032+phase)*.22,z+Math.cos(time*.00040+phase)*.17);
+    }
+    air.moving.needsUpdate=true;
   }
 
   function riverScenery(parent,mats){
-    const boundaries=[-8.4,riverLength+8.4,0,riverLength,...dockRange,...bridgeRange,
-      ...riverReserves.flatMap(p=>[p.station-2.55,p.station+2.55])];
-    for(let s=-8.25;s<riverLength+8.4;s+=.69)boundaries.push(s);
-    const samples=[...new Set(boundaries)].sort((a,b)=>a-b).map(riverSection);
-    function riverVertex(section,offset,y){
-      const point=riverPoint(section,offset);
-      return [point.x,y,point.z];
+    const roofHeight=3.32;
+    const wet=riverWetRects,walk=riverBankRects;
+    const scenicWet=wet.map(r=>({...r})),scenicWalk=walk.map(r=>({...r}));
+    scenicWet[0].minZ-=8.4; scenicWalk[0].minZ-=8.4;
+    scenicWet[1].maxZ+=8.4; scenicWalk[1].maxZ+=8.4;
+    const inside=(rects,x,z)=>rects.some(rect=>inRect(rect,x,z));
+    const sorted=values=>[...new Set(values)].sort((a,b)=>a-b);
+    const bounds=[...scenicWet,...scenicWalk,dockPad,oreEntrance,lairEntrance];
+    const xs=sorted(bounds.flatMap(r=>[r.minX,r.maxX]));
+    const zs=sorted([...bounds.flatMap(r=>[r.minZ,r.maxZ]),-55.43,-49.31]);
+    const water=quadBatch(),paths=quadBatch(),quays=quadBatch(),rocks=quadBatch(),roof=quadBatch();
+    function deck(batch,x0,x1,z0,z1,y){
+      batch.quad([[x0,y,z0],[x0,y,z1],[x1,y,z1],[x1,y,z0]]);
     }
-    function rockPoint(side,section,y,extra=0){
-      const bump=Math.sin(section.s*1.61+y*1.91+side)*.25+Math.cos(section.s*.91+y*3.79)*.16;
-      const offset=section.half+bankWidth+.47+bump+extra;
-      return riverVertex(section,side*offset,y);
+    function wall(batch,ax,az,bx,bz,low,high){
+      batch.quad([[ax,low,az],[bx,low,bz],[bx,high,bz],[ax,high,az]],ax===bx?'z':'x','y');
     }
-    for(let start=0;start<samples.length-1;start+=66){
-      const slice=samples.slice(start,start+67);
-      const paths=quadBatch(),quays=quadBatch(),rock=quadBatch(),ceiling=quadBatch();
-      for(let i=1;i<slice.length;i++){
-        const a=slice[i-1],b=slice[i],middle=(a.s+b.s)/2;
-        for(const side of [-1,1]){
-          const dock=side<0&&middle>dockRange[0]&&middle<dockRange[1];
-          const bridge=side<0&&middle>bridgeRange[0]&&middle<bridgeRange[1];
-          const branch=riverReserves.some(p=>side===p.side&&Math.abs(middle-p.station)<2.55);
-          if(!dock){
-            const deck=[riverVertex(a,side*a.half,landingFloor),riverVertex(b,side*b.half,landingFloor),
-              riverVertex(b,side*(b.half+bankWidth),landingFloor),riverVertex(a,side*(a.half+bankWidth),landingFloor)];
-            paths.quad(side>0?deck:deck.reverse());
-            const base=bridge?landingFloor-.22:riverSurface-.25;
-            quays.quad([riverVertex(a,side*a.half,base),riverVertex(b,side*b.half,base),
-              riverVertex(b,side*b.half,landingFloor),riverVertex(a,side*a.half,landingFloor)],'z','y');
-          }
-          if(!dock&&!bridge&&!branch){
-            for(const [low,high] of [[landingFloor,-.55],[-.55,1.17],[1.17,3.36]]){
-              rock.quad([rockPoint(side,a,low),rockPoint(side,b,low),
-                rockPoint(side,b,high),rockPoint(side,a,high)],'z','y');
-            }
-          }
+    function outerWall(ax,az,bx,bz,px,pz){
+      if(inside(scenicWalk,px,pz))return;
+      const mx=(ax+bx)/2,mz=(az+bz)/2;
+      const dock=ax===bx&&Math.abs(mx-(riverColumns[0]-riverHalfWidth-bankWidth))<.02
+        &&mz>dockPad.minZ&&mz<dockPad.maxZ;
+      const canal=ax===bx&&Math.abs(mx-(riverColumns[0]-riverHalfWidth-bankWidth))<.02
+        &&mz>-55.43&&mz<-49.31;
+      const caveMouth=(Math.abs(mx-riverColumns[0])<8.5&&Math.abs(mz-scenicWalk[0].minZ)<.01)||
+        (Math.abs(mx-riverColumns[1])<8.5&&Math.abs(mz-scenicWalk[1].maxZ)<.01);
+      const doorway=ax===bx&&((Math.abs(mx-(riverColumns[0]+riverHalfWidth+bankWidth))<.02&&
+        mz>lairEntrance.minZ&&mz<lairEntrance.maxZ)||
+        (Math.abs(mx-(riverColumns[1]+riverHalfWidth+bankWidth))<.02&&mz>oreEntrance.minZ&&mz<oreEntrance.maxZ));
+      if(!dock&&!canal&&!caveMouth&&!doorway)wall(rocks,ax,az,bx,bz,riverSurface-.42,roofHeight+.04);
+    }
+    function quay(ax,az,bx,bz,px,pz){
+      if(inside(scenicWet,px,pz)||!inside(scenicWalk,px,pz))return;
+      const mx=(ax+bx)/2,mz=(az+bz)/2;
+      if(onDockCut(mx,mz))return;
+      const underBridge=ax===bx&&Math.abs(mx-(riverColumns[0]-riverHalfWidth))<.01
+        &&mz>-55.43&&mz<-49.31;
+      wall(quays,ax,az,bx,bz,underBridge?landingFloor-.22:riverSurface-.20,landingFloor);
+    }
+    for(let i=1;i<xs.length;i++){
+      for(let j=1;j<zs.length;j++){
+        const x0=xs[i-1],x1=xs[i],z0=zs[j-1],z1=zs[j],x=(x0+x1)/2,z=(z0+z1)/2;
+        if(!inside(scenicWalk,x,z))continue;
+        deck(roof,x0,x1,z0,z1,roofHeight);
+        const edges=[[x0,z0,x0,z1,x0-.002,z],[x1,z0,x1,z1,x1+.002,z],
+          [x0,z0,x1,z0,x,z0-.002],[x0,z1,x1,z1,x,z1+.002]];
+        if(inside(scenicWet,x,z)){
+          deck(water,x0,x1,z0,z1,riverSurface);
+          for(const edge of edges)quay(...edge);
+        }else if(!onDockCut(x,z)){
+          deck(paths,x0,x1,z0,z1,landingFloor);
         }
-        const roof=[rockPoint(-1,a,3.18,.69),rockPoint(-1,b,3.18,.69),
-          rockPoint(1,b,3.33,.69),rockPoint(1,a,3.33,.69)];
-        ceiling.quad(roof.reverse());
+        for(const edge of edges)outerWall(...edge);
       }
-      paths.mesh(parent,mats.floor);
-      quays.mesh(parent,mats.wet);
-      rock.mesh(parent,mats.wet);
-      ceiling.mesh(parent,mats.vault);
-      riverSurfaceMesh(parent,slice);
     }
-
+    water.mesh(parent,waterMaterial(0,1,0x193d3a,0x7eaaa0));
+    paths.mesh(parent,mats.floor);
+    quays.mesh(parent,mats.wet);
+    rocks.mesh(parent,mats.wet);
+    roof.mesh(parent,mats.vault);
     cavernMouth(parent,mats,true);
     cavernMouth(parent,mats,false);
     for(const pier of berths)bankLanding(parent,mats,pier);
-    for(const reserve of riverReserves)reserveCavern(parent,mats,reserve);
-    const riverLight=new THREE.PointLight(0x83a69b,35,23,2);
-    const glow=riverSection(dockStation-3);
-    riverLight.position.set(glow.x,.65,glow.z);
-    parent.add(riverLight);
-    underground.lamps.push(riverLight);
+    for(const [x,z,c] of [[66.1,-72.4,0x98a584],[120.5,-76.0,0x899b89],
+      [65.9,16.1,0x84aaa3],[120.4,15.9,0xa6a387]]){
+      const lantern=new THREE.PointLight(c,25,15,2);
+      lantern.position.set(x,1.53,z);
+      parent.add(lantern);
+      underground.lamps.push(lantern);
+    }
+    for(const [x,z] of [[47.9,-34.0],[63.4,-10.0],[121.7,-29.4],[137.8,-71.8]]){
+      tunnelLantern(parent,x,landingFloor+1.42,z);
+    }
+    buildDragonLair(parent,mats);
+    buildOreReserve(parent,mats);
+    const waterLight=new THREE.PointLight(0x759e9d,32,22,2);
+    waterLight.position.set(riverColumns[0],.66,dockZ-3);
+    parent.add(waterLight);
+    underground.lamps.push(waterLight);
 
     block(parent,(dockEntry+dockSteps)/2,landingFloor-.36,dockZ,dockSteps-dockEntry,.72,
       dockPad.maxZ-dockPad.minZ,mats.floor,false);
@@ -1561,6 +2128,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       case 'kitchen-wine':
         caption('缸里是石犬岭的浆果酒。酒面深红，闻着有浆果发酵后的酸甜味。');
         break;
+      case 'sleeping-dragon':
+        caption('黑龙伏在烧焦的草根上，翅膀收在背脊两侧。它还在睡。');
+        break;
     }
   }
 
@@ -1570,7 +2140,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       gate.hinge.rotation.y+=(target-gate.hinge.rotation.y)*transition;
     }
     const sailor=underground.sailor;
-    const belowStairs=started&&(sailor.riding||eye.x>40||
+    const belowStairs=started&&(sailor.riding||eye.x>33||
       (eye.z<stairExitZ+.55&&stairAt(eye.x,eye.z)?.kind!=='street'));
     underground.lantern.visible=belowStairs;
     for(const lamp of underground.lamps)lamp.visible=belowStairs;
@@ -1604,8 +2174,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const ctx=sheet.getContext('2d');
     sheet.width=1440;
     sheet.height=920;
-    const X=x=>50+(x+20)*5.46,Y=z=>110+(z+128)*2.47;
-    const plot=({x,z})=>[X(x),Y(z)];
+    const X=x=>48+(x+20)*4.66,Y=z=>108+(z+108)*3.52;
     const font='"Microsoft YaHei","PingFang SC",sans-serif';
     function label(text,x,y,size=20,color='#e8dac0',bold=false,align='left'){
       ctx.font=(bold?'700 ':'400 ')+size+'px '+font;
@@ -1614,10 +2183,13 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       ctx.textBaseline='middle';
       ctx.fillText(text,x,y);
     }
-    function fill(points,color){
+    function polygon(points){
       ctx.beginPath();
       points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));
       ctx.closePath();
+    }
+    function fill(points,color){
+      polygon(points);
       ctx.fillStyle=color;
       ctx.fill();
     }
@@ -1632,12 +2204,16 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    function route(points,color='#bda77c',weight=11){
-      const path=points.map(([x,z])=>[X(x),Y(z)]);
-      stroke(path,'#232820',weight+6);
-      stroke(path,color,weight);
+    function rect({minX,maxX,minZ,maxZ},color){
+      ctx.fillStyle=color;
+      ctx.fillRect(X(minX),Y(minZ),X(maxX)-X(minX),Y(maxZ)-Y(minZ));
     }
-    function dot(x,y,color='#e7bb81',r=4.5){
+    function route(points,color='#bda77c',weight=11){
+      const screen=points.map(([x,z])=>[X(x),Y(z)]);
+      stroke(screen,'#232820',weight+5);
+      stroke(screen,color,weight);
+    }
+    function dot(x,y,color='#e7bb81',r=4){
       ctx.beginPath();
       ctx.arc(x,y,r,0,Math.PI*2);
       ctx.fillStyle=color;
@@ -1649,13 +2225,13 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     ctx.fillRect(26,26,1388,674);
     ctx.save();
     ctx.beginPath();
-    ctx.rect(27,27,934,672);
+    ctx.rect(27,27,933,672);
     ctx.clip();
     const terrain=random(1143);
-    for(let y=58;y<706;y+=23){
-      const offset=y%46===0?0:21;
+    for(let y=57;y<706;y+=23){
+      const offset=y%46?21:0;
       for(let x=27-offset;x<961;x+=43){
-        const n=34+Math.floor(terrain()*10);
+        const n=34+Math.floor(terrain()*9);
         ctx.fillStyle='rgb('+(n+1)+','+(n+3)+','+(n-4)+')';
         ctx.fillRect(x+(terrain()>.55?3:1),y,39,20);
       }
@@ -1663,120 +2239,103 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     ctx.restore();
     ctx.fillStyle='#222b25';
     ctx.fillRect(961,27,452,672);
-    label('沉钟河 · 地下水路',52,61,34,'#f0e7d0',true);
-    label('北 ↑',874,64,20,'#c6bd9f',true);
+    label('沉钟河 · 地下水路',52,62,34,'#f0e7d0',true);
+    label('北 ↑',885,63,20,'#c6bd9f',true);
+    for(const rectData of riverBankRects)rect(rectData,'#a59a7e');
+    for(const rectData of riverWetRects)rect(rectData,'#345e57');
 
-    const sketches=[];
-    for(let s=0;s<riverLength;s+=1.1)sketches.push(riverSection(s));
-    sketches.push(riverSection(riverLength));
-    const banks=side=>sketches.map(section=>plot(riverPoint(section,side*section.half)));
-    const left=banks(-1),right=banks(1);
-    for(const side of [-1,1]){
-      const inside=side<0?left:right;
-      const outside=sketches.map(section=>plot(riverPoint(section,side*(section.half+bankWidth))));
-      fill([...inside,...outside.slice().reverse()],'#a59a7e');
-      stroke(outside,'#bdb197',1.5);
+    // Mark the four crossings with unobtrusive stones on the bank corners.
+    for(const x of riverColumns)for(const z of riverCrosscuts){
+      for(const sx of [-1,1])for(const sz of [-1,1]){
+        dot(X(x+sx*7.13),Y(z+sz*7.12),'#ded1a3',2.6);
+      }
     }
-    fill([...left,...right.slice().reverse()],'#345e57');
-    stroke(left,'#739585',1.3);
-    stroke(right,'#739585',1.3);
-    for(let s=15;s<riverLength-6;s+=24){
-      const a=plot(riverSection(s-2.9)),b=plot(riverSection(s+2.9));
-      const angle=Math.atan2(b[1]-a[1],b[0]-a[0]);
-      stroke([a,b],'#b0cdbb',1.8);
-      fill([b,[b[0]+8*Math.cos(angle+2.57),b[1]+8*Math.sin(angle+2.57)],
-        [b[0]+8*Math.cos(angle-2.57),b[1]+8*Math.sin(angle-2.57)]],'#b0cdbb');
-    }
-    for(const end of [0,riverLength]){
-      const section=riverSection(end),point=plot(section);
-      stroke([plot(riverPoint(section,-section.half)),plot(riverPoint(section,section.half))],
-        end===0?'#c4d6cb':'#d9c293',4);
-      label(end===0?'上游入口':'下游出口',point[0]+(end===0?18:-14),
-        point[1]+(end===0?15:20),17,'#f0e4c6',true,end===0?'left':'right');
+    for(const [x,z,up] of [[riverColumns[0],-108,true],[riverColumns[1],45,false]]){
+      stroke([[X(x-riverHalfWidth),Y(z)],[X(x+riverHalfWidth),Y(z)]],up?'#c4d6cb':'#d9c293',3.3);
+      label(up?'上游入口':'下游出口',X(x)+38,Y(z)+(up?0:7),15,'#e9dec1',true);
     }
 
-    for(const p of riverReserves){
-      const span=p.span/2,offset=p.side*p.edge;
-      const corner=(distance,along)=>plot(riverPoint(p.section,offset+p.side*distance,along));
-      fill([corner(-.2,-2.55),corner(p.neck,-2.55),corner(p.neck,2.55),corner(-.2,2.55)],'#8d8469');
-      const room=[corner(p.neck,-span),corner(p.depth,-span),corner(p.depth,span),corner(p.neck,span)];
-      const lair=p.id==='lair';
-      fill(room,lair?'#705447':'#535d58');
-      stroke([...room,room[0]],lair?'#dfba96':'#bcccba',1.65,[5,4]);
-      const text=corner((p.neck+p.depth)/2,0);
-      label(p.name,text[0],text[1],14,lair?'#f0d2b2':'#d6e8d5',true,'center');
+    rect(lairEntrance,'#938263');
+    const cave=lairOutline.map(([x,z])=>[X(x),Y(z)]);
+    fill(cave,'#604744');
+    stroke([...cave,cave[0]],'#a78374',1.55);
+    ctx.save();
+    polygon(cave);
+    ctx.clip();
+    for(let x=X(67);x<X(120);x+=12){
+      stroke([[x,Y(-23)],[x-27,Y(13)]],'#694e4a',1.2);
     }
+    ctx.restore();
+    label('黑龙巢穴',X(93.8),Y(-7.8),25,'#f5e1c8',true,'center');
+    label('从西侧栈台进入',X(93.8),Y(.8),14,'#d9c3ae',false,'center');
+    rect(oreEntrance,'#8c846c');
+    rect(oreChamber,'#4e5a53');
+    const ore=[[X(oreChamber.minX),Y(oreChamber.minZ)],[X(oreChamber.maxX),Y(oreChamber.minZ)],
+      [X(oreChamber.maxX),Y(oreChamber.maxZ)],[X(oreChamber.minX),Y(oreChamber.maxZ)]];
+    stroke([...ore,ore[0]],'#bcccba',1.65,[5,4]);
+    label('矿洞预留区',X(154),Y(-54.0),15,'#dce8d6',true,'center');
 
     route(mainRoute);
     route(riverRoute);
-    fill([[X(dockEntry),Y(dockPad.minZ)],[X(dockEnd),Y(dockPad.minZ)],
-      [X(dockEnd),Y(dockPad.maxZ)],[X(dockEntry),Y(dockPad.maxZ)]],'#aa9470');
+    rect({minX:dockEntry,maxX:dockEnd,minZ:dockPad.minZ,maxZ:dockPad.maxZ},'#ac9770');
     route(drainRoute);
-    route([[northDoorway.x,-4.77],[northDoorway.x,-6.4],[tunnelMouth.x,-6.4],[tunnelMouth.x,stairExitZ]],'#aa9773',8);
+    route([[northDoorway.x,-4.77],[northDoorway.x,-6.4],[tunnelMouth.x,-6.4],[tunnelMouth.x,stairExitZ]],'#aa9773',7.5);
     route([[northDoorway.x,-6.4],[stairs[0].x,-6.4],[stairs[0].x,stairStart-stairs[0].count*tread]],'#aa9773',7);
     const canal=canalProfile.map(([x,z])=>[X(x),Y(z)]);
-    stroke(canal,'#243d34',17);
-    stroke(canal,'#76ab99',12);
-    stroke(canal,'#b4cbbd',1.3,[8,8]);
-    stroke([[X(serviceBank.minX),Y(-51.8)],[X(serviceBank.maxX),Y(-51.8)]],'#b9a785',5);
-    label('城内排水干渠',67,262,16,'#b1cdc0',true);
-    const roomX=X(-5.8),roomY=Y(-4.83);
-    ctx.fillStyle='#766049';
-    ctx.fillRect(roomX,roomY,X(5.8)-roomX,Y(4.8)-roomY);
-    ctx.lineWidth=1.8;
+    stroke(canal,'#243d34',15.5);
+    stroke(canal,'#76ab99',10.7);
+    stroke(canal,'#b4cbbd',1.25,[8,8]);
+    stroke([[X(serviceBank.minX),Y(-51.8)],[X(serviceBank.maxX),Y(-51.8)]],'#b9a785',4.6);
+    label('城内排水干渠',64,Y(-62),15,'#b1cdc0',true);
+    rect({minX:-5.8,maxX:5.8,minZ:-4.83,maxZ:4.8},'#766049');
     ctx.strokeStyle='#c0a579';
-    ctx.strokeRect(roomX,roomY,X(5.8)-roomX,Y(4.8)-roomY);
-    label('地下酒馆',roomX-7,Y(4.8)+14,17,'#f4dfb7',true);
-    label('居民街石阶',66,Y(-17),14,'#cec4a7');
-    stroke([[146,Y(-17)],[X(stairs[0].x)-5,Y(-14)]],'#ac9e80',1);
-    dot(X(forkX),Y(forkZ),'#e5b173',5);
-    dot(X(serviceGate.x),Y(serviceGate.z),'#e5b173',5);
-    label('搬运道岔口',X(forkX)+10,Y(-27),14,'#e5d7ba',true);
-    label('排水检修门',79,Y(-44),15,'#e5d7ba',true);
-    stroke([[163,Y(-44)],[X(serviceGate.x)-6,Y(serviceGate.z)+3]],'#c0b195',1);
-    label('约 40 米',X(7.5),Y(-14)+12,13,'#dbcca7');
-    label('约 30 米',X(31.4),Y(dockZ)+13,13,'#dbcca7');
-    label('约 45 米',X(forkX)+8,Y(-39),13,'#dbcca7');
+    ctx.lineWidth=1.5;
+    ctx.strokeRect(X(-5.8),Y(-4.83),X(5.8)-X(-5.8),Y(4.8)-Y(-4.83));
+    label('地下酒馆',X(-8),Y(9.6),17,'#f4dfb7',true);
+    label('居民街石阶',69,Y(-18.2),14,'#cec4a7');
+    stroke([[145,Y(-18.2)],[X(stairs[0].x)-5,Y(-14)]],'#ac9e80',1);
+    dot(X(forkX),Y(forkZ),'#e5b173',4.5);
+    dot(X(serviceGate.x),Y(serviceGate.z),'#e5b173',4.5);
+    label('搬运道岔口',X(forkX)+10,Y(-29.4),14,'#e5d7ba',true);
+    label('排水检修门',84,Y(-44),15,'#e5d7ba',true);
+    stroke([[160,Y(-44)],[X(serviceGate.x)-6,Y(serviceGate.z)+3]],'#c0b195',1);
+    label('约 40 米',X(8),Y(-11.3),13,'#dbcca7');
+    label('约 30 米',X(31),Y(-10.8),13,'#dbcca7');
+    label('约 45 米',X(forkX)+8,Y(-40.2),13,'#dbcca7');
     for(const berth of berths){
       const {boat,land,section}=berthAt(berth);
-      stroke([plot(land),plot(boat)],'#d2a56e',4);
-      const marker=plot(riverPoint(section,berth.side*section.half));
-      dot(...marker,'#ffdda0',4.6);
-      if(berth.stone){
-        label('系船石台',marker[0]-14,marker[1]+28,14,'#f0daa8',true,'right');
-        stroke([[marker[0]-13,marker[1]+21],[marker[0]-3,marker[1]+4]],'#c9b487',1);
-      }
+      stroke([[X(land.x),Y(land.z)],[X(boat.x),Y(boat.z)]],'#d2a56e',4);
+      const p=riverPoint(section,berth.side*riverHalfWidth);
+      dot(X(p.x),Y(p.z),'#ffdda0',4.8);
+      if(berth.stone)label('系船石台',X(p.x)-12,Y(p.z)+32,14,'#f0daa8',true,'right');
     }
     if(player){
-      const p=plot(player);
-      dot(...p,'#222921',8.2);
-      dot(...p,'#ffdc83',5.5);
+      dot(X(player.x),Y(player.z),'#222921',8.3);
+      dot(X(player.x),Y(player.z),'#ffdc83',5.4);
     }
-    stroke([[76,644],[76+20*5.46,644]],'#d3c7a7',2);
-    stroke([[76,640],[76,648]],'#d3c7a7',2);
-    stroke([[76+20*5.46,640],[76+20*5.46,648]],'#d3c7a7',2);
-    label('20 米（东西向）',76,666,14,'#cbbf9d');
+    stroke([[75,641],[75+20*4.66,641]],'#d3c7a7',2);
+    stroke([[75,637],[75,645]],'#d3c7a7',2);
+    stroke([[75+20*4.66,637],[75+20*4.66,645]],'#d3c7a7',2);
+    label('20 米（东西向）',75,662,14,'#cbbf9d');
 
-    label('河岸与通行',993,83,26,'#eee4cb',true);
-    label('箭头指向下游',993,130,19,'#e1d7bd');
-    label('两岸步道贯通，四处可上下船',993,172,18,'#e1d7bd');
-    stroke([[992,218],[1380,218]],'#50574a',1.4);
-    const legend=[['#345e57','地下主河道'],['#a59a7e','沿河步道'],['#bda77c','搬运道与支路'],
-      ['#76ab99','排水干渠'],['#ffdda0','栈台与石台'],['#705447','大型魔物巢穴预留区'],
-      ['#535d58','矿产资源预留区']];
+    label('井字水网',993,83,26,'#eee4cb',true);
+    label('两纵两横，四处交汇',993,131,19,'#e1d7bd');
+    label('沿岸步道与四处靠岸点',993,171,18,'#e1d7bd');
+    stroke([[992,219],[1380,219]],'#50574a',1.4);
+    const legend=[['#345e57','可通船水道'],['#a59a7e','沿河步道'],['#bda77c','酒馆与搬运道'],
+      ['#76ab99','城内排水干渠'],['#ffdda0','栈台与石台'],['#604744','黑龙巢穴'],['#4e5a53','矿洞预留区']];
     legend.forEach(([color,name],i)=>{
       const y=254+i*46;
       if(i===4)dot(1007,y,color,6);
       else{
         ctx.fillStyle=color;
         ctx.fillRect(993,y-6,28,12);
-        if(i>4)stroke([[992,y-7],[1022,y-7],[1022,y+7],[992,y+7],[992,y-7]],'#d5c3a8',1.2,[3,3]);
       }
       label(name,1043,y,18,'#ddd2b7');
     });
     stroke([[992,581],[1380,581]],'#50574a',1.4);
-    label('两个预留洞室均从岸上进入',993,623,16,'#d1c3a5');
-    label('平面示意，步行距离按通道计',993,655,15,'#c6b795');
+    label('从系船石台登船，横渡后上岸进洞。',993,623,16,'#d1c3a5');
+    label('平面示意，步行距离按通道计',993,656,15,'#c6b795');
 
     label('高程关系',53,733,26,'#252923',true);
     label('以地下河平水面为零点',1140,733,16,'#50584d');
@@ -3332,6 +3891,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
   function startGame(){
     started=true;
+    armCaveAudio();
     panel.hidden=true;
     cursor.hidden=false;
     caption('WASD 走动 · 鼠标转向 · E 交互 · M 地图');
@@ -3362,7 +3922,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return Math.min(stair.count,1+Math.floor((stairStart-z)/tread))*stair.rise;
   }
   function walkable(x,z){
-    if(x>40)return undergroundWalkable(x,z);
+    if(x>33)return undergroundWalkable(x,z);
     if(z>=-4.51&&z<=4.53)return x>-5.55&&x<5.55;
     if(z>4.53){
       if(z<5.10){
@@ -3585,6 +4145,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       const bob=active&&(f||s)?Math.sin(guess)*.018:0;
       camera.position.set(eye.x,eye.y+ground+bob,eye.z);
     }
+    const far=started&&camera.position.x>64.2&&camera.position.x<118&&camera.position.z>-22.6&&camera.position.z<12.4?65:42;
+    if(camera.far!==far){camera.far=far;camera.updateProjectionMatrix();}
     camera.rotation.x=pitch;
     camera.rotation.y=yaw;
     camera.updateMatrixWorld();
@@ -3608,6 +4170,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     fireplace.intensity=12.9+1.5*Math.sin(time*.014)+.68*Math.sin(time*.042);
     c.intensity=1.32+.08*Math.sin(time*.019);
     updateWaterways(time,transition);
+    updateSleepingDragon(time);
     renderer.render(scene,camera);
     requestAnimationFrame(frame);
   }
