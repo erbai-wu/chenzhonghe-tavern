@@ -1946,9 +1946,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       }
       panels.push({side,panel});
     }
-    const target={name:'拨开后厨门帘',kind:'curtain',point:V(kitchenDoorway.x,1.60,4.77),radius:.99};
-    interactive.push(target);
-    curtain={panels,opened:false,amount:0,target};
+    curtain={panels,opened:false,amount:0};
   }
 
   function buildRoom(){
@@ -3357,20 +3355,27 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
           if(northDoor.opened)caption('北门外的楼梯平台，左侧上地面，右侧下往地下河和排水渠。');
         }
       }
-      if(item?.kind==='curtain'){
-        if(curtain.opened&&Math.abs(eye.z-kitchenDoorway.z)<.45){
-          caption('走过门槛，再合上门帘。');
-        }else{
-          curtain.opened=!curtain.opened;
-          item.name=curtain.opened?'合拢后厨门帘':'拨开后厨门帘';
-        }
-      }
       if(item?.kind==='street')caption('再往前是西城旧居民街。');
       if(item)useUndergroundItem(item);
     }
   });
   window.addEventListener('keyup',event=>walking.delete(arrows[event.code]||event.code));
   window.addEventListener('blur',()=>{walking.clear(); dragging=false;});
+
+  function updateKitchenCurtain(dt){
+    const across=Math.abs(eye.x-kitchenDoorway.x);
+    const distance=Math.abs(eye.z-kitchenDoorway.z);
+    // A larger closing range keeps the panels clear as the player crosses the threshold.
+    const closeRange=curtain.opened;
+    curtain.opened=started&&across<(closeRange?1.10:.88)&&distance<(closeRange?1.58:1.24);
+    const target=curtain.opened?1:0;
+    const blend=1-Math.exp(-(curtain.opened?14:8)*dt);
+    curtain.amount+=(target-curtain.amount)*blend;
+    for(const {side,panel} of curtain.panels){
+      panel.position.x=side*(.382+.275*curtain.amount);
+      panel.scale.x=1-.756*curtain.amount;
+    }
+  }
 
   let last=performance.now(),fireFrame=-1,ground=0;
   function frame(time){
@@ -3395,13 +3400,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
     const transition=1-Math.exp(-15*dt);
     const openAngle=northDoor.opened?Math.PI*.51:0;
-    const openCurtain=curtain.opened?1:0;
     northDoor.hinge.rotation.y+=(openAngle-northDoor.hinge.rotation.y)*transition;
-    curtain.amount+=(openCurtain-curtain.amount)*transition;
-    for(const {side,panel} of curtain.panels){
-      panel.position.x=side*(.382+.275*curtain.amount);
-      panel.scale.x=1-.756*curtain.amount;
-    }
+    updateKitchenCurtain(dt);
     if(sailor.riding){
       const seatBack=.41;
       const bob=Math.sin(time*.0013)*.025;
