@@ -292,6 +292,19 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const hallPavingDepth=9.7;
   const stairStart=-7.16;
   const tread=.32;
+  const upperPassage={
+    join:{minX:.68,maxX:5.38,minZ:stairStart,maxZ:-hallPavingDepth/2},
+    east:{minX:5.38,maxX:26.60,minZ:-8.91,maxZ:-hallPavingDepth/2}
+  };
+  const sideRooms=[
+    {id:'staff-quarters',name:'员工宿舍',english:'Staff Quarters',
+      minX:5.98,maxX:12.98,minZ:-4.58,maxZ:2.56,height:2.98,seed:2229,
+      doorway:{x:8.64,z:-4.75,half:.78,spring:1.58,height:2.34}},
+    {id:'storeroom',name:'杂货房',english:'Storeroom',
+      minX:13.14,maxX:20.12,minZ:-4.58,maxZ:2.56,height:3.04,seed:2327,
+      doorway:{x:15.63,z:-4.75,half:.78,spring:1.58,height:2.34}}
+  ];
+  const sideDoors=Object.create(null);
   const stairs=[
     { x:1.60, width:1.68, count:22, rise:.18, kind:'street' },
     { x:4.33, width:1.68, count:12, rise:-.05, kind:'down' }
@@ -568,19 +581,225 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     fieldWall(surface,0,0,0,width,maxZ-minZ,0,seed,null,0,true);
   }
 
-  function northPassages(){
-    const landing=group(scene,3.04,0,-5.984);
-    const stone=matte('stone',2);
-    const paving=floorMatte('floor',1);
-    pavingBed(landing,0,4.73,2.39,.19);
-    // Paving sections meet at a single edge instead of overlapping at the doors.
-    stonePaving(landing,4.73,stairStart-landing.position.z,-hallPavingDepth/2-landing.position.z,541);
-    block(landing,0,2.66,0,4.79,.20,2.49,stone,false,.55);
-    for(const side of [-1,1]){
-      block(landing,side*2.416,1.32,0,.15,2.64,2.49,dark,false);
-      fieldWall(landing,side*2.34,0,0,2.46,2.56,-side*Math.PI/2,322+side);
+  function upperPassageShell(){
+    const {join,east}=upperPassage;
+    const corridor=group(scene);
+    corridor.name='east-passage';
+    const ceiling=3.16,stone=matte('stone',2);
+
+    function deck({minX,maxX,minZ,maxZ},seed){
+      const width=maxX-minX,depth=maxZ-minZ;
+      const part=group(corridor,(minX+maxX)/2,0,(minZ+maxZ)/2);
+      pavingBed(part,0,width,depth,.19);
+      stonePaving(part,width,-depth/2,depth/2,seed);
+      block(part,0,ceiling+.081,0,width,.17,depth,stone,false,.57);
+    }
+    function face(minX,maxX,z,yaw,seed,door){
+      const middle=(minX+maxX)/2,width=maxX-minX;
+      const sign=Math.cos(yaw);
+      const hole=door?{x:(door.x-middle)*sign,half:door.half,spring:door.spring,height:door.height}:null;
+      fieldWall(corridor,middle,0,z,width,ceiling,yaw,seed,hole);
+    }
+    deck(join,541);
+    deck(east,2171);
+    fieldWall(corridor,join.minX,0,(join.minZ+join.maxZ)/2,join.maxZ-join.minZ,ceiling,Math.PI/2,902);
+    fieldWall(corridor,east.minX,0,(east.minZ+join.minZ)/2,join.minZ-east.minZ,ceiling,Math.PI/2,903);
+    fieldWall(corridor,east.maxX,0,(east.minZ+east.maxZ)/2,east.maxZ-east.minZ,ceiling,-Math.PI/2,909);
+    face(join.minX,east.minX,east.maxZ,Math.PI,906,northDoorway);
+    face(east.minX,east.maxX,east.minZ,0,929);
+    for(const room of sideRooms){
+      face(room.minX,room.maxX,east.maxZ,Math.PI,room.seed+1,room.doorway);
+    }
+    face(east.minX,sideRooms[0].minX,east.maxZ,Math.PI,902);
+    face(sideRooms[0].maxX,sideRooms[1].minX,east.maxZ,Math.PI,907);
+    face(sideRooms[1].maxX,east.maxX,east.maxZ,Math.PI,933);
+    for(const x of [6.10,11.76,18.52,24.53]){
+      const y=ceiling-.106;
+      block(corridor,x,y,(east.minZ+east.maxZ)/2,.20,.25,east.maxZ-east.minZ,
+        matte('oak',4),true,.50);
+    }
+    for(const x of [7.30,14.05,21.75]){
+      wallBrazier(corridor,x,1.54,east.minZ,0,2.7,5.0);
     }
 
+    const end=group(corridor,east.maxX-.105,0,(east.minZ+east.maxZ)/2,-Math.PI/2);
+    const outline=archProfile(1.10,1.78,.70,12);
+    for(let i=1;i<outline.length;i++){
+      const [ax,ay]=outline[i-1],[bx,by]=outline[i];
+      block(end,(ax+bx)/2,(ay+by)/2,0,Math.hypot(bx-ax,by-ay)+.015,.197,.16,
+        matte('stone',2+i%3),false,.45,Math.atan2(by-ay,bx-ax));
+    }
+    for(const side of [-1,1]){
+      for(let i=0;i<4;i++)block(end,side*1.11,.225+i*.447,0,.206,.439,.174,
+        matte('stone',2+i%3),false,.47);
+    }
+  }
+
+  function roomShell(room){
+    const {minX,maxX,minZ,maxZ,height,doorway,seed}=room;
+    const width=maxX-minX,depth=maxZ-minZ,halfW=width/2,halfD=depth/2;
+    const shell=group(scene,(minX+maxX)/2,0,(minZ+maxZ)/2);
+    shell.name=room.id;
+    pavingBed(shell,0,width,depth,.19);
+    stonePaving(shell,width,-halfD,halfD,seed+30);
+    block(shell,0,height+.09,0,width+.15,.18,depth+.15,matte('darkwood',3),false,.60);
+
+    function backing(x,z,w,d){
+      block(shell,x,height/2,z,w,height,d,dark,false);
+    }
+    backing(0,halfD+.054,width+.16,.15);
+    fieldWall(shell,0,0,halfD,width,height,Math.PI,seed+3);
+    for(const side of [-1,1]){
+      backing(side*(halfW+.045),0,.128,depth);
+      fieldWall(shell,side*halfW,0,0,depth,height,-side*Math.PI/2,seed+side+7);
+    }
+    const dx=doorway.x-shell.position.x;
+    const threshold=(minZ+upperPassage.east.maxZ)/2;
+    block(scene,doorway.x,-.10,threshold,doorway.half*2,.2,minZ-upperPassage.east.maxZ,
+      floorMatte('floor',1),false,.44);
+    const opening={x:dx,half:doorway.half,spring:doorway.spring,height:doorway.height};
+    fieldWall(shell,0,0,-halfD,width,height,0,seed+12,opening);
+    const left=dx-opening.half,right=dx+opening.half;
+    backing((left-halfW)/2,-halfD-.060,left+halfW,.122);
+    backing((right+halfW)/2,-halfD-.060,halfW-right,.122);
+    const arc=archProfile(doorway.half,doorway.spring,doorway.height-doorway.spring)
+      .map(([x,y])=>[x+dx,y]);
+    solidProfile(shell,[...arc,[right,height],[left,height]],-halfD-.116,.120,dark);
+    for(const z of [-2.22,0,2.33]){
+      block(shell,0,height-.135,z,width,.245,.175,matte('oak',3),true,.49);
+    }
+    const door=decorateDoor(doorway,Math.PI,room.id+'-door','打开'+room.name+'的门');
+    rackLabel(door.frame,0,2.596,room.english,room.name);
+    sideDoors[room.id]=door;
+    return shell;
+  }
+
+  function staffBed(parent,x,z,turn,seed){
+    const root=group(parent,x,0,z,turn);
+    root.name='staff-bed';
+    const wood=matte('weathered',seed),frame=matte('oak',seed+2);
+    const straw=matte('keeperLinen',seed%4),blanket=matte('wool',seed+2);
+    const folded=matte('keeperApron',seed+1);
+    for(const side of [-1,1]){
+      block(root,side*.426,.364,0,.072,.197,2.17,wood,true,.44);
+      for(const end of [-1,1]){
+        block(root,side*.452,.436,end*1.037,.114,.864,.109,frame,true,.41);
+      }
+    }
+    for(const z of [-1.051,1.051]){
+      block(root,0,.423,z,.858,.219,.073,wood,true,.40);
+    }
+    for(let slat=0;slat<9;slat++){
+      block(root,0,.412,(slat-4)*.219,.817,.050,.142,frame,false,.44);
+    }
+    const rest=group(root);
+    loft(rest,[[.438,.369,.971],[.478,.389,.986],[.55,.369,.948]],12,straw,.001,Math.PI/12);
+    block(root,0,.572,-.649,.720,.077,.469,folded,false,.42,-.018);
+    const pillow=group(root,-.024,.546,.691,-.064);
+    loft(pillow,[[.001,.271,.162],[.025,.289,.175],[.104,.257,.147]],10,straw,.0015);
+    for(const x of [-.35,.35]){
+      const hang=group(root,x,.498,-.294);
+      block(hang,0,0,0,.025,.147,.949,blanket,true,.49,x*.075);
+    }
+    const top=group(root,0,.566,-.283);
+    block(top,0,0,0,.749,.057,.961,blanket,false,.49);
+    block(top,0,.035,.421,.753,.018,.083,folded,false,.40);
+    collider(root,0,0,.98,2.19);
+  }
+
+  function lidChest(parent,x,z,w,d,turn){
+    const chest=group(parent,x,0,z,turn);
+    chest.name='wooden-chest';
+    block(chest,0,.055,0,w,.103,d,matte('oak',2),true,.43);
+    for(const side of [-1,1]){
+      block(chest,side*(w/2-.035),.209,0,.069,.321,d,matte('weathered',1),true,.43);
+      block(chest,0,.210,side*(d/2-.025),w,.322,.051,matte('weathered',2),true,.43);
+    }
+    const wax=matte('weathered',3),strap=matte('iron',4);
+    block(chest,0,.393,0,w+.039,.090,d+.044,wax,true,.42);
+    for(const edge of [-1,1]){
+      block(chest,edge*w*.31,.454,-.018,.035,.025,d+.051,strap,true,.32);
+      block(chest,edge*w*.31,.392,-d/2-.022,.051,.139,.026,strap,true);
+    }
+    block(chest,0,.359,-d/2-.029,.083,.103,.039,strap,true,.31);
+    collider(chest,0,0,w+.042,d+.048);
+  }
+
+  function furnishStaff(room){
+    for(const [x,z,yaw,seed] of [[-2.16,-.68,Math.PI/2,1],[-2.18,1.07,Math.PI/2,3],
+      [2.25,2.02,0,4]]){
+      staffBed(room,x,z,yaw,seed);
+    }
+    lidChest(room,-2.76,2.63,.81,.53,0);
+    lidChest(room,.74,2.82,.91,.58,Math.PI);
+    const table=group(room,2.66,0,-1.34,Math.PI*.5);
+    block(table,0,.743,0,.861,.105,.516,matte('weathered',0),true,.50);
+    for(const x of [-.345,.345]){
+      block(table,x,.37,0,.127,.719,.399,matte('oak',1),true,.50);
+    }
+    vesselForWater(table,.11,.807,.057);
+    collider(table,0,0,.87,.53);
+    wallBrazier(room,2.16,1.74,3.57,Math.PI,2.35,4.9);
+  }
+
+  function vesselForWater(parent,x,y,z){
+    const jug=group(parent,x,y,z);
+    const clay=matte('clay',3);
+    loft(jug,[[0,.104,.091],[.048,.139,.110],[.190,.132,.103],[.258,.068,.058],
+      [.323,.063,.056],[.337,.078,.070]],10,clay,.0017);
+    dragonTube(jug,[[.084,.271,.004,.016,.018],[.181,.246,.009,.019,.022],
+      [.174,.143,.010,.016,.021],[.123,.103,.007,.016,.016]],6,
+      pixelLit(new THREE.MeshStandardMaterial({vertexColors:true,roughness:1})),[0x896a4f,0x917053],133);
+  }
+
+  function supplySack(parent,x,y,z,scale,seed){
+    const bag=group(parent,x,y,z,(seed%13)*.37);
+    bag.scale.setScalar(scale);
+    const canvas=matte('canvas',seed%5),rope=matte('rag',2);
+    loft(bag,[[0,.244,.191],[.089,.284,.227,.012],[.277,.265,.210,.019],
+      [.443,.200,.168,-.018],[.510,.081,.073,-.045],[.571,.097,.077,-.035]],10,canvas,.0017);
+    loft(bag,[[.516,.078,.070,-.042],[.537,.083,.073,-.041]],10,rope,.001);
+    for(const side of [-1,1])limb(bag,[0,.533,.024],[side*.092,.468,.050],.017,.016,rope,.0011);
+  }
+
+  function furnishStore(room){
+    for(const [x,z,turn,width] of [[-.04,2.94,Math.PI,4.90],[2.76,.48,-Math.PI/2,3.98]]){
+      const shelf=group(room,x,0,z,turn);
+      for(const edge of [-1,1])block(shelf,edge*(width*.5-.048),1.12,0,.115,2.24,.54,
+        matte('oak',2),true,.52);
+      for(const [i,y] of [.194,.869,1.536,2.180].entries()){
+        block(shelf,0,y,0,width,.105,.570,matte('weathered',i+1),true,.49);
+        if(i===3)continue;
+        for(let bay=0;bay<4;bay++){
+          const slot=(bay-1.5)*width*.22;
+          if((i+bay)%3===0)supplySack(shelf,slot,y+.057,0,.56,123+bay+i);
+          else if((i+bay)%3===1)pantryCrate(shelf,slot,y+.057,0,.54,.38);
+          else vesselForWater(shelf,slot,y+.057,.053);
+        }
+      }
+      collider(shelf,0,0,width,.61);
+    }
+    for(const [x,z,scale,seed] of [[-2.47,-.83,1.07,2],[-2.55,.19,.9,4],[-2.13,1.02,1.05,8]]){
+      supplySack(room,x,0,z,scale,seed);
+      collider(room,x,z,.57*scale,.48*scale);
+    }
+    for(const [x,z,scale] of [[-2.30,2.45,.84],[-1.29,2.18,.76]]){
+      barrel(room,x,0,z,scale);
+      collider(room,x,z,.65*scale,.65*scale);
+    }
+    wallBrazier(room,(sideRooms[1].maxX-sideRooms[1].minX)/2,1.76,-2.38,-Math.PI/2,2.28,4.9);
+  }
+
+  function buildSideRooms(){
+    furnishStaff(roomShell(sideRooms[0]));
+    furnishStore(roomShell(sideRooms[1]));
+  }
+
+  function northPassages(){
+    upperPassageShell();
+    buildSideRooms();
+    const stone=matte('stone',2);
+    const paving=floorMatte('floor',1);
     for(const [x,w] of [[.722,.18],[2.965,1.03],[5.214,.17]]){
       block(scene,x,1.26,-7.171,w,2.52,.18,matte('stone',3),false,.55);
     }
@@ -2809,6 +3028,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     route(riverRoute);
     rect({minX:dockEntry,maxX:dockEnd,minZ:dockPad.minZ,maxZ:dockPad.maxZ},'#ac9770');
     route(drainRoute);
+    for(const section of [upperPassage.join,upperPassage.east])rect(section,'#ae9872');
+    for(const room of sideRooms)rect(room,'#82664b');
     route([[northDoorway.x,-4.77],[northDoorway.x,-6.4],[tunnelMouth.x,-6.4],[tunnelMouth.x,stairExitZ]],'#aa9773',7.5);
     route([[northDoorway.x,-6.4],[stairs[0].x,-6.4],[stairs[0].x,stairStart-stairs[0].count*tread]],'#aa9773',7);
     const canal=canalProfile.map(([x,z])=>[X(x),Y(z)]);
@@ -2822,6 +3043,28 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     ctx.lineWidth=1.5;
     ctx.strokeRect(X(-5.8),Y(-4.83),X(5.8)-X(-5.8),Y(4.8)-Y(-4.83));
     label("地下酒馆",X(-8),Y(9.6),17,'#f4dfb7',true);
+    const ix=72,iz=574,spacing=8.1;
+    ctx.fillStyle='#202722';
+    ctx.fillRect(59,541,237,96);
+    ctx.strokeStyle='#666454';
+    ctx.lineWidth=1;
+    ctx.strokeRect(59.5,541.5,236,95);
+    const roomX=x=>ix+(x-upperPassage.join.minX)*spacing;
+    const roomZ=z=>iz+(z-upperPassage.east.minZ)*5.25;
+    function upperInset(area,color){
+      const x=roomX(area.minX),z=roomZ(area.minZ);
+      ctx.fillStyle=color;
+      ctx.fillRect(x,z,roomX(area.maxX)-x,roomZ(area.maxZ)-z);
+    }
+    label('北门外通道',72,555,15,'#ead9b5',true);
+    upperInset(upperPassage.join,'#aa9773');
+    upperInset(upperPassage.east,'#aa9773');
+    for(const room of sideRooms){
+      upperInset(room,'#725840');
+      const x=roomX(room.doorway.x);
+      dot(x,roomZ(room.minZ),'#e7c490',3);
+      label(room.name,roomX((room.minX+room.maxX)/2),roomZ((room.minZ+room.maxZ)/2),12,'#f2dfb9',false,'center');
+    }
     label("居民街石阶",55,Y(-23.8),14,'#cec4a7');
     stroke([[145,Y(-18.2)],[X(stairs[0].x)-5,Y(-14)]],'#ac9e80',1);
     dot(X(forkX),Y(forkZ),'#e5b173',4.5);
@@ -3235,7 +3478,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       block(scene,x,3.22,.01,.27,.29,9.44,matte('oak',3),false,.54);
       block(scene,x,2.93,-4.36,.20,.71,.22,matte('oak',1),true,.56,.50);
     }
-    decorateDoor();
+    northDoor=decorateDoor(northDoorway,0,"north-door","打开北门");
   }
   function timberDoor(parent,x,z){
     const door=group(parent,x,0,z);
@@ -3258,9 +3501,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     block(leaf,.49,1.056,-.077,.158,.044,.051,matte('iron',2),true);
   }
 
-  function decorateDoor(){
-    const {x,half,spring,height}=northDoorway;
-    const door=group(scene,x,0,-4.765);
+  function decorateDoor({x,z,half,spring,height},turn,kind,name){
+    const door=group(scene,x,0,z+Math.cos(turn)*.035,turn);
     const jamb=group(door);
     const opening=archProfile(half-.023,spring,height-spring-.020);
     const outside=archProfile(half+.153,spring,height-spring+.157);
@@ -3312,9 +3554,9 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     pull.castShadow=true;
     leaf.add(pull);
     block(leaf,.49,1.056,-.082,.153,.046,.050,iron,true);
-    const target={name:"打开北门",kind:'north-door',point:V(x,1.37,-4.71),radius:1.0};
+    const target={name,kind,point:door.localToWorld(V(0,1.37,.055)),radius:1.0};
     interactive.push(target);
-    northDoor={hinge,opened:false,target};
+    return {frame:door,hinge,opened:false,target};
   }
 
   function fireTexture(size){
@@ -4425,23 +4667,35 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 
     const broom=group(actor),shaft=matte('salvaged',0),twine=matte('rag',2);
     broom.name='twig-broom';
-    loft(broom,[[.118,.021,.019],[.55,.018,.016],[1.05,.014,.014],[1.46,.013,.011]],
+    loft(broom,[[.191,.024,.020],[.56,.019,.017],[1.05,.014,.014],[1.46,.013,.011]],
       8,shaft,.001,Math.PI/8);
+
+    const brushCore=loft(broom,[[.052,.209,.075],[.071,.219,.084],[.154,.171,.072],
+      [.239,.104,.056],[.329,.051,.040]],14,matte('keeperApron',0),0);
+    brushCore.name='twig-broom-head';
     const rng=random(73491),bristles=new THREE.MeshStandardMaterial({vertexColors:true,
       roughness:1,side:THREE.DoubleSide});
-    const branches=[];
-    for(let i=0;i<83;i++){
-      const x=(rng()-.5)*.305,z=(rng()-.5)*.105,w=.003+rng()*.002;
-      const start=[x*.18,.275+rng()*.05,z*.28],middle=[x*.66,.113+rng()*.028,z*.73];
-      const end=[x,.014+rng()*.035,z+.018+rng()*.015];
-      const color=new THREE.Color(choose([0x625137,0x766044,0x897452,0x594b37,0x725c40],rng));
-      branches.push({points:[start,[middle[0]-w,middle[1],middle[2]],middle],color},
-        {points:[middle,[middle[0]-w,middle[1],middle[2]],end],color});
+    const branches=[],brushTips=[];
+    for(let i=0;i<262;i++){
+      const x=(rng()-.5)*.495,z=(rng()-.5)*.169,w=.0024+rng()*.0030;
+      const side=x*(.75+.31*rng());
+      const start=[x*.23,.296+rng()*.039,z*.50];
+      const joint=[x*.66,.155+rng()*.024,z*.84];
+      const near=[side*.97,.057+rng()*.035,z*.97+.005];
+      const end=[side,.003+rng()*.041,z+.016];
+      brushTips.push(end);
+      const ridge=[joint[0]-w,joint[1],joint[2]+w*.30];
+      const strand=new THREE.Color(choose([0x594631,0x6c573d,0x806a4a,0x97805b,0x524030,0x736046],rng));
+      branches.push({points:[start,ridge,joint],color:strand},{points:[joint,ridge,near],color:strand},
+        {points:[near,ridge,end],color:strand});
     }
-    stoneFacetMesh(broom,branches,pixelLit(bristles));
-    for(const y of [.179,.216,.239]){
-      loft(broom,[[y,.041,.032],[y+.013,.043,.033]],9,twine,.0006);
+    const fibers=stoneFacetMesh(broom,branches,pixelLit(bristles));
+    fibers.name='twig-broom-fibers';
+    for(const [y,rx,rz] of [[.262,.094,.061],[.289,.076,.052],[.315,.060,.046]]){
+      loft(broom,[[y,rx,rz],[y+.011,rx+.002,rz+.001]],12,twine,0);
     }
+    for(const side of [-1,1])limb(broom,[side*.005,.303,.052],[side*.081,.247,.073],
+      .013,.010,twine,.0007);
 
     function segment(rings,material){
       const node=group(actor);
@@ -4463,7 +4717,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       return {side,boot,leg:segment([[0,.056,.058],[.14,.047,.049],[.245,.039,.047]],skirt)};
     });
     actor.traverse(part=>{if(part.isMesh)part.castShadow=false;});
-    const vertical=V(0,1,0),shaftAxis=V(),brush=V();
+    const vertical=V(0,1,0),shaftAxis=V(),brush=V(),brushUp=V();
+    const brushRotation=new THREE.Quaternion();
     function align(node,from,to,length){
       const delta=to.clone().sub(from),distance=delta.length();
       node.position.copy(from);
@@ -4477,11 +4732,14 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       face.rotation.x=stroke*(.09+.06*Math.cos(sweep));
       face.rotation.y=-.11*sweep;
       const swing=walking*Math.sin(phase*.92);
-      brush.set(.16+.44*sweep+.04*swing,.042+.094*walking+.011*stroke,.55+.11*sweep*sweep-.20*walking);
       shaftAxis.set(-.08-.39*sweep,.95,-.33+.08*walking).normalize();
-      broom.position.copy(brush);
       broom.quaternion.setFromUnitVectors(vertical,shaftAxis);
       broom.rotateY(.42*sweep);
+      brushUp.copy(vertical).applyQuaternion(brushRotation.copy(broom.quaternion).invert());
+      let low=Infinity;
+      for(const [x,y,z] of brushTips)low=Math.min(low,x*brushUp.x+y*brushUp.y+z*brushUp.z);
+      brush.set(.16+.44*sweep+.04*swing,.010-low+.094*walking,.55+.11*sweep*sweep-.20*walking);
+      broom.position.copy(brush);
       for(const {side,sleeve,forearm,hand} of arms){
         const shoulder=V(side*.174,1.204+bob,.010).applyAxisAngle(V(0,0,1),pose.rotation.z);
         const wrist=brush.clone().addScaledVector(shaftAxis,side===1?1.127:.899);
@@ -4660,6 +4918,17 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   }
   function walkable(x,z){
     if(x>33)return undergroundWalkable(x,z);
+    for(const room of sideRooms){
+      if(z>=room.minZ+.23&&z<room.maxZ-.22&&x>room.minX+.22&&x<room.maxX-.22)return true;
+      if(z>-5.13&&z<room.minZ+.24&&Math.abs(x-room.doorway.x)<room.doorway.half-.22){
+        return sideDoors[room.id].hinge.rotation.y>1.15;
+      }
+    }
+    const east=upperPassage.east;
+    if(z>-8.69&&z<=-5.13&&x<east.maxX-.24){
+      if(z>=stairStart&&x>.91)return true;
+      if(x>east.minX+.22)return true;
+    }
     if(z>=-4.51&&z<=4.53)return x>-5.55&&x<5.55;
     if(z>4.53){
       if(z<5.10){
@@ -4670,7 +4939,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     if(z>-5.13){
       return northDoor.hinge.rotation.y>1.15&&Math.abs(x-northDoorway.x)<northDoorway.half-.22;
     }
-    if(z>=stairStart)return x>.91&&x<5.20;
+    if(z>=stairStart)return false;
     return stairAt(x,z)!==null||undergroundWalkable(x,z);
   }
   function blocked(x,z){
@@ -4798,7 +5067,20 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
         }else{
           northDoor.opened=!northDoor.opened;
           item.name=northDoor.opened?"关上北门":"打开北门";
-          if(northDoor.opened)caption("北门外的楼梯平台，左侧上地面，右侧下往地下河和排水渠。");
+          if(northDoor.opened)caption("北门外是横向通道。近处有上下楼梯，沿通道向右可到员工宿舍和杂货房。");
+        }
+      }
+      if(item){
+        const room=sideRooms.find(room=>item.kind===room.id+'-door');
+        if(room){
+          const door=sideDoors[room.id];
+          if(door.opened&&Math.abs(eye.z-room.doorway.z)<.77){
+            caption("先离开门槛，再关门。");
+          }else{
+            door.opened=!door.opened;
+            item.name=(door.opened?"关上":"打开")+room.name+"的门";
+            caption(door.opened?room.name+"的门已打开。":room.name+"的门已关上。");
+          }
         }
       }
       if(item?.kind==='street')caption("再往前是西城旧居民街。");
@@ -4860,6 +5142,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     const transition=1-Math.exp(-15*dt);
     const openAngle=northDoor.opened?Math.PI*.51:0;
     northDoor.hinge.rotation.y+=(openAngle-northDoor.hinge.rotation.y)*transition;
+    for(const room of sideRooms){
+      const door=sideDoors[room.id],target=door.opened?Math.PI*.51:0;
+      door.hinge.rotation.y+=(target-door.hinge.rotation.y)*transition;
+    }
     updateKitchenCurtain(dt);
     if(sailor.riding){
       const seatBack=.41;
