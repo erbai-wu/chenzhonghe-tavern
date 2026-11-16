@@ -3089,13 +3089,120 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     }
   }
 
+  let surveyParchment;
+  function parchmentForSurvey(width,height){
+    if(surveyParchment)return surveyParchment;
+    const sheet=canvas(width,height),paper=canvas(width,height),ctx=sheet.getContext('2d');
+    const grain=paper.getContext('2d'),pixels=grain.createImageData(width,height);
+    const rng=random(27631),pockets=[];
+    for(let i=0;i<22;i++){
+      pockets.push([rng()*width,rng()*height,40+rng()*155,17+rng()*95,5+rng()*19]);
+    }
+    const threads=Array.from({length:32},()=>rng()*2-1);
+    const tone=canvas(230,150),wash=tone.getContext('2d');
+    wash.fillStyle='#dbc398';
+    wash.fillRect(0,0,tone.width,tone.height);
+    for(const [x,y,w,h,depth] of pockets){
+      wash.save();
+      wash.translate(x/width*tone.width,y/height*tone.height);
+      wash.rotate((rng()-.50)*.75);
+      wash.scale(w/width*tone.width,h/height*tone.height);
+      const fading=wash.createRadialGradient(0,0,0,0,0,1);
+      fading.addColorStop(0,`rgba(95,55,25,${depth/112})`);
+      fading.addColorStop(.55,`rgba(132,77,33,${depth/214})`);
+      fading.addColorStop(1,'rgba(141,95,47,0)');
+      wash.fillStyle=fading;
+      wash.fillRect(-1,-1,2,2);
+      wash.restore();
+    }
+    grain.drawImage(tone,0,0,width,height);
+    const field=grain.getImageData(0,0,width,height).data;
+    for(let y=0;y<height;y++){
+      const weave=threads[y%threads.length]*1.25;
+      for(let x=0;x<width;x++){
+        const index=(y*width+x)*4;
+        const edge=Math.max(0,1-Math.min(x,width-x,y,height-y)/102);
+        const noise=(rng()-.5)*9.1+weave+1.3*Math.sin(x*.39+y*.26);
+        const age=edge*edge*(26+7*Math.sin(y*.035+x*.028));
+        const speck=rng()>.9981?17+rng()*22:0;
+        pixels.data[index]=field[index]+noise-age-speck;
+        pixels.data[index+1]=field[index+1]+noise*.76-age-speck*.73;
+        pixels.data[index+2]=field[index+2]+noise*.57-age*.77-speck*.52;
+        pixels.data[index+3]=255;
+      }
+    }
+    grain.putImageData(pixels,0,0);
+
+    function outline(){
+      const edge=(s,ch)=>Math.sin(s*.044+ch)*2.7+Math.sin(s*.137+ch*1.7)*1.38;
+      ctx.beginPath();
+      ctx.moveTo(26,18);
+      for(let x=26;x<width-24;x+=6)ctx.lineTo(x,16+edge(x,1));
+      for(let y=20;y<height-24;y+=6)ctx.lineTo(width-17-edge(y,3),y);
+      for(let x=width-23;x>24;x-=6)ctx.lineTo(x,height-16+edge(x,8));
+      for(let y=height-23;y>22;y-=6)ctx.lineTo(17+edge(y,12),y);
+      ctx.closePath();
+    }
+    ctx.fillStyle='#24190f';
+    ctx.fillRect(0,0,width,height);
+    outline();
+    ctx.fillStyle='#71502c';
+    ctx.shadowColor='rgba(15,9,4,.85)';
+    ctx.shadowBlur=16;
+    ctx.shadowOffsetY=5;
+    ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.shadowOffsetY=0;
+    ctx.save();
+    outline();
+    ctx.clip();
+    ctx.drawImage(paper,0,0);
+
+    // Shallow folds and dark fibers remain visible where the chart has been handled.
+    for(const [x,alpha] of [[319,.046],[956,.102],[1268,.063]]){
+      const fold=ctx.createLinearGradient(x-12,0,x+13,0);
+      fold.addColorStop(0,'rgba(116,77,41,0)');
+      fold.addColorStop(.40,`rgba(99,65,37,${alpha})`);
+      fold.addColorStop(.52,'rgba(249,229,177,.094)');
+      fold.addColorStop(1,'rgba(116,77,41,0)');
+      ctx.fillStyle=fold;
+      ctx.fillRect(x-12,0,25,height);
+    }
+    const bottomFold=ctx.createLinearGradient(0,700,0,731);
+    bottomFold.addColorStop(0,'rgba(141,91,49,0)');
+    bottomFold.addColorStop(.46,'rgba(118,71,33,.115)');
+    bottomFold.addColorStop(.51,'rgba(252,230,180,.16)');
+    bottomFold.addColorStop(1,'rgba(141,91,49,0)');
+    ctx.fillStyle=bottomFold;
+    ctx.fillRect(0,700,width,31);
+    outline();
+    for(const [line,ink] of [[14,'rgba(83,49,23,.13)'],[6,'rgba(76,43,20,.25)'],[2.3,'rgba(78,44,21,.47)']]){
+      ctx.lineWidth=line;
+      ctx.strokeStyle=ink;
+      ctx.stroke();
+    }
+    for(let i=0;i<1650;i++){
+      const x=19+rng()*(width-37),y=18+rng()*(height-38);
+      const dx=(rng()-.5)*2.4,dy=(rng()-.5)*6.1;
+      ctx.strokeStyle=rng()<.43?'rgba(103,67,36,.091)':'rgba(240,216,163,.13)';
+      ctx.lineWidth=.53;
+      ctx.beginPath();
+      ctx.moveTo(x,y);
+      ctx.quadraticCurveTo(x+dx*.35+.78,y+dy*.47,x+dx,y+dy);
+      ctx.stroke();
+    }
+    ctx.restore();
+    surveyParchment=sheet;
+    return sheet;
+  }
+
   function drawSurvey(sheet,player=null){
     const ctx=sheet.getContext('2d');
     sheet.width=1440;
     sheet.height=920;
     const X=x=>48+(x+20)*4.66,Y=z=>108+(z+108)*3.52;
-    const font='"Microsoft YaHei","PingFang SC",sans-serif';
-    function label(text,x,y,size=20,color='#e8dac0',bold=false,align='left',maxWidth=410){
+    const font='"KaiTi","STKaiti","Microsoft YaHei","PingFang SC",serif';
+    function label(text,x,y,size=20,color='#483122',bold=false,align='left',maxWidth=410){
       ctx.fillStyle=color;
       ctx.textAlign=align;
       ctx.textBaseline='middle';
@@ -3127,103 +3234,163 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       ctx.fillStyle=color;
       ctx.fillRect(X(minX),Y(minZ),X(maxX)-X(minX),Y(maxZ)-Y(minZ));
     }
-    function route(points,color='#bda77c',weight=11){
+    function route(points,color='#b79666',weight=11){
       const screen=points.map(([x,z])=>[X(x),Y(z)]);
-      stroke(screen,'#232820',weight+5);
+      stroke(screen,'#786049',weight+5);
       stroke(screen,color,weight);
     }
-    function dot(x,y,color='#e7bb81',r=4){
+    function dot(x,y,color='#9a643d',r=4){
       ctx.beginPath();
       ctx.arc(x,y,r,0,Math.PI*2);
       ctx.fillStyle=color;
       ctx.fill();
     }
-    ctx.fillStyle='#eae4d4';
-    ctx.fillRect(0,0,1440,920);
-    ctx.fillStyle='#1e2521';
-    ctx.fillRect(26,26,1388,674);
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(27,27,933,672);
-    ctx.clip();
+    ctx.drawImage(parchmentForSurvey(sheet.width,sheet.height),0,0);
+    stroke([[37,36],[1403,37],[1401,901],[39,900],[37,36]],'#896240',1.7);
+    stroke([[44,42],[1395,42],[1394,895],[45,894],[44,42]],'rgba(113,79,47,.56)',.75);
+    ctx.fillStyle='rgba(138,92,49,.065)';
+    ctx.fillRect(965,55,417,625);
+    stroke([[961,55],[962,674]],'rgba(112,72,39,.48)',1.25);
+    stroke([[58,697],[958,698],[1380,698]],'#916b49',1.36);
+    stroke([[60,704],[1381,705]],'rgba(116,76,43,.40)',.75);
+
     const terrain=random(1143);
-    for(let y=57;y<706;y+=23){
-      const offset=y%46?21:0;
-      for(let x=27-offset;x<961;x+=43){
-        const n=34+Math.floor(terrain()*9);
-        ctx.fillStyle='rgb('+(n+1)+','+(n+3)+','+(n-4)+')';
-        ctx.fillRect(x+(terrain()>.55?3:1),y,39,20);
-      }
+    for(let i=0;i<178;i++){
+      const x=56+terrain()*875,y=104+terrain()*548;
+      const length=6+terrain()*19,size=1+terrain()*3;
+      stroke([[x,y+size],[x+length*.47,y],[x+length,y+size*.73]],'rgba(122,88,52,.135)',.64);
+      if(i%4===0)stroke([[x+3,y+5],[x+length*.51,y+4],[x+length+2,y+6]],
+        'rgba(109,75,43,.103)',.63);
     }
-    ctx.restore();
-    ctx.fillStyle='#222b25';
-    ctx.fillRect(961,27,452,672);
     ctx.textAlign='center';
     ctx.textBaseline='middle';
-    ctx.font='italic bold 50px "Palatino Linotype","Book Antiqua",Georgia,serif';
-    ctx.fillStyle='#f0e7d0';
-    ctx.fillText('Map',493,63);
-    label("北 ↑",885,63,20,'#c6bd9f',true);
-    for(const rectData of riverBankRects)rect(rectData,'#a59a7e');
-    for(const rectData of riverWetRects)rect(rectData,'#345e57');
+    ctx.font='italic bold 53px "Palatino Linotype","Book Antiqua",Georgia,serif';
+    ctx.strokeStyle='rgba(240,219,171,.53)';
+    ctx.lineWidth=1.8;
+    ctx.strokeText('Map',493,67);
+    ctx.fillStyle='#452c1b';
+    ctx.fillText('Map',493,66);
+    ctx.strokeStyle='#875b35';
+    ctx.lineWidth=1.28;
+    ctx.beginPath();
+    ctx.moveTo(376,78);
+    ctx.bezierCurveTo(390,68,413,81,457,81);
+    ctx.moveTo(529,81);
+    ctx.bezierCurveTo(568,81,593,67,608,77);
+    ctx.stroke();
+    dot(370,78,'#9c6c3d',1.9);
+    dot(614,77,'#9c6c3d',1.9);
+
+    ctx.beginPath();
+    ctx.arc(895,81,15,0,Math.PI*2);
+    ctx.strokeStyle='#7f5737';
+    ctx.lineWidth=.78;
+    ctx.stroke();
+    fill([[895,60],[900,82],[895,87],[890,82]],'#594020');
+    fill([[895,101],[895,86],[889,80]],'#b18b5b');
+    label('北',895,51,16,'#473320',true,'center');
+
+    for(const bank of riverBankRects)rect({
+      minX:bank.minX-.28,maxX:bank.maxX+.28,minZ:bank.minZ-.37,maxZ:bank.maxZ+.37
+    },'#74664d');
+    for(const bank of riverBankRects)rect(bank,'#b79d70');
+    for(const reach of riverWetRects)rect({
+      minX:reach.minX-.23,maxX:reach.maxX+.23,minZ:reach.minZ-.30,maxZ:reach.maxZ+.30
+    },'#4b6359');
+    const riverTint='#7c9585';
+    for(const reach of riverWetRects)rect(reach,riverTint);
+
+    ctx.save();
+    ctx.beginPath();
+    for(const {minX,maxX,minZ,maxZ} of riverWetRects){
+      ctx.rect(X(minX),Y(minZ),X(maxX)-X(minX),Y(maxZ)-Y(minZ));
+    }
+    ctx.clip();
+    const current=random(6942);
+    const pattern=ctx.createLinearGradient(361,99,850,655);
+    pattern.addColorStop(0,'rgba(222,215,167,.26)');
+    pattern.addColorStop(.46,'rgba(213,207,165,.02)');
+    pattern.addColorStop(1,'rgba(50,89,83,.26)');
+    ctx.fillStyle=pattern;
+    ctx.fillRect(300,100,560,560);
+    for(let i=0;i<1800;i++){
+      const x=302+current()*546,y=104+current()*552;
+      const length=2+current()*12;
+      ctx.beginPath();
+      ctx.moveTo(x,y);
+      ctx.quadraticCurveTo(x+length*.56,y-1.3,x+length,y-.38);
+      ctx.strokeStyle=i%4===0?'rgba(224,221,169,.37)':'rgba(62,104,94,.26)';
+      ctx.lineWidth=.69;
+      ctx.stroke();
+    }
+    ctx.restore();
 
     // Mark the four crossings with unobtrusive stones on the bank corners.
     for(const x of riverColumns)for(const z of riverCrosscuts){
       for(const sx of [-1,1])for(const sz of [-1,1]){
-        dot(X(x+sx*7.13),Y(z+sz*7.12),'#ded1a3',2.6);
+        dot(X(x+sx*7.13),Y(z+sz*7.12),'#695e48',2.6);
       }
     }
     for(const [x,z,up] of [[riverColumns[0],-108,true],[riverColumns[1],45,false]]){
-      stroke([[X(x-riverHalfWidth),Y(z)],[X(x+riverHalfWidth),Y(z)]],up?'#c4d6cb':'#d9c293',3.3);
-      label(up?"上游入口":"下游出口",X(x)+38,Y(z)+(up?0:7),15,'#e9dec1',true);
+      stroke([[X(x-riverHalfWidth),Y(z)],[X(x+riverHalfWidth),Y(z)]],up?'#45645b':'#7b5f43',3.3);
+      label(up?"上游入口":"下游出口",X(x)+38,Y(z)+(up?0:7),15,'#473427',true);
     }
 
     const cave=lairOutline.map(([x,z])=>[X(x),Y(z)]);
-    fill(cave,'#604744');
-    stroke([...cave,cave[0]],'#a78374',1.55);
+    fill(cave,'rgba(141,92,61,.31)');
+    stroke([...cave,cave[0]],'#80563d',1.55);
     ctx.save();
     polygon(cave);
     ctx.clip();
     for(let x=X(67);x<X(120);x+=12){
-      stroke([[x,Y(-23)],[x-27,Y(13)]],'#694e4a',1.2);
+      stroke([[x,Y(-23)],[x-27,Y(13)]],'rgba(117,83,52,.27)',1.2);
     }
     ctx.restore();
-    label("黑龙巢穴",X(93.8),Y(-7.8),25,'#f5e1c8',true,'center');
+    label("黑龙巢穴",X(93.8),Y(-7.8),25,'#4e3020',true,'center');
     const exitX=(dragonExit.minX+dragonExit.maxX)/2;
     stroke([[X(exitX),Y(dragonExitZ(exitX))],[X(exitX+2.84),Y(dragonExit.endZ)]],
-      '#a5afb0',1.65,[4,4]);
-    dot(X(exitX+2.84),Y(dragonExit.endZ),'#b8c2bc',3.5);
-    label("岩壁高位出入口",X(exitX+2.84),Y(dragonExit.endZ)-25,13,'#ced6c9',false,'center');
-    rect(oreEntrance,'#8c846c');
-    rect(oreChamber,'#4e5a53');
+      '#775944',1.65,[4,4]);
+    dot(X(exitX+2.84),Y(dragonExit.endZ),'#8d6a4e',3.5);
+    label("岩壁高位出入口",X(exitX+2.84),Y(dragonExit.endZ)-25,13,'#4f3b2a',false,'center');
+    rect(oreEntrance,'#b5a17a');
+    rect(oreChamber,'rgba(105,109,82,.23)');
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(X(oreChamber.minX),Y(oreChamber.minZ),
+      X(oreChamber.maxX)-X(oreChamber.minX),Y(oreChamber.maxZ)-Y(oreChamber.minZ));
+    ctx.clip();
+    for(let x=X(oreChamber.minX)-10;x<X(oreChamber.maxX)+12;x+=9){
+      stroke([[x,Y(oreChamber.minZ)-3],[x-35,Y(oreChamber.maxZ)+6]],'rgba(79,79,49,.20)',.82);
+    }
+    ctx.restore();
     const ore=[[X(oreChamber.minX),Y(oreChamber.minZ)],[X(oreChamber.maxX),Y(oreChamber.minZ)],
       [X(oreChamber.maxX),Y(oreChamber.maxZ)],[X(oreChamber.minX),Y(oreChamber.maxZ)]];
-    stroke([...ore,ore[0]],'#bcccba',1.65,[5,4]);
-    label("矿洞预留区",X(154),Y(-55.5),13,'#dce8d6',true,'center',89);
+    stroke([...ore,ore[0]],'#635f47',1.65,[5,4]);
+    label("矿洞预留区",X(154),Y(-55.5),13,'#3c4431',true,'center',89);
 
     route(mainRoute);
     route(riverRoute);
-    rect({minX:dockEntry,maxX:dockEnd,minZ:dockPad.minZ,maxZ:dockPad.maxZ},'#ac9770');
+    rect({minX:dockEntry,maxX:dockEnd,minZ:dockPad.minZ,maxZ:dockPad.maxZ},'#b29460');
     route(drainRoute);
-    for(const section of [upperPassage.join,upperPassage.east])rect(section,'#ae9872');
-    for(const room of sideRooms)rect(room,'#82664b');
-    route([[northDoorway.x,-4.77],[northDoorway.x,-6.4],[tunnelMouth.x,-6.4],[tunnelMouth.x,stairExitZ]],'#aa9773',7.5);
-    route([[northDoorway.x,-6.4],[stairs[0].x,-6.4],[stairs[0].x,stairStart-stairs[0].count*tread]],'#aa9773',7);
+    for(const section of [upperPassage.join,upperPassage.east])rect(section,'#bd9f6a');
+    for(const room of sideRooms)rect(room,'#c1a477');
+    route([[northDoorway.x,-4.77],[northDoorway.x,-6.4],[tunnelMouth.x,-6.4],[tunnelMouth.x,stairExitZ]],'#a98b5e',7.5);
+    route([[northDoorway.x,-6.4],[stairs[0].x,-6.4],[stairs[0].x,stairStart-stairs[0].count*tread]],'#a98b5e',7);
     const canal=canalProfile.map(([x,z])=>[X(x),Y(z)]);
-    stroke(canal,'#243d34',15.5);
-    stroke(canal,'#76ab99',10.7);
-    stroke(canal,'#b4cbbd',1.25,[8,8]);
-    stroke([[X(serviceBank.minX),Y(-51.8)],[X(serviceBank.maxX),Y(-51.8)]],'#b9a785',4.6);
-    label("城内排水干渠",64,Y(-62),15,'#b1cdc0',true);
-    rect({minX:-5.8,maxX:5.8,minZ:-4.83,maxZ:4.8},'#766049');
-    ctx.strokeStyle='#c0a579';
+    stroke(canal,'#6a7660',15.5);
+    stroke(canal,'#8fa493',10.7);
+    stroke(canal,'#518176',1.25,[8,8]);
+    stroke([[X(serviceBank.minX),Y(-51.8)],[X(serviceBank.maxX),Y(-51.8)]],'#b09a72',4.6);
+    label("城内排水干渠",64,Y(-62),15,'#3f5649',true);
+    rect({minX:-5.8,maxX:5.8,minZ:-4.83,maxZ:4.8},'#b49a6e');
+    ctx.strokeStyle='#6f5438';
     ctx.lineWidth=1.5;
     ctx.strokeRect(X(-5.8),Y(-4.83),X(5.8)-X(-5.8),Y(4.8)-Y(-4.83));
-    label("地下酒馆",X(-8),Y(9.6),17,'#f4dfb7',true);
+    label("地下酒馆",X(-8),Y(9.6),17,'#422d1e',true);
     const ix=72,iz=574,spacing=8.1;
-    ctx.fillStyle='#202722';
+    ctx.fillStyle='rgba(192,158,110,.34)';
     ctx.fillRect(59,541,237,96);
-    ctx.strokeStyle='#666454';
+    ctx.strokeStyle='#96764f';
     ctx.lineWidth=1;
     ctx.strokeRect(59.5,541.5,236,95);
     const roomX=x=>ix+(x-upperPassage.join.minX)*spacing;
@@ -3233,74 +3400,79 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       ctx.fillStyle=color;
       ctx.fillRect(x,z,roomX(area.maxX)-x,roomZ(area.maxZ)-z);
     }
-    label('北门外通道',72,555,15,'#ead9b5',true);
-    upperInset(upperPassage.join,'#aa9773');
-    upperInset(upperPassage.east,'#aa9773');
+    label('北门外通道',72,555,15,'#543721',true);
+    upperInset(upperPassage.join,'#a98b5e');
+    upperInset(upperPassage.east,'#a98b5e');
     for(const room of sideRooms){
-      upperInset(room,'#725840');
+      upperInset(room,'#c1a17b');
       const x=roomX(room.doorway.x);
-      dot(x,roomZ(room.minZ),'#e7c490',3);
-      label(room.name,roomX((room.minX+room.maxX)/2),roomZ((room.minZ+room.maxZ)/2),12,'#f2dfb9',false,'center',53);
+      dot(x,roomZ(room.minZ),'#865b36',3);
+      label(room.name,roomX((room.minX+room.maxX)/2),roomZ((room.minZ+room.maxZ)/2),12,'#452f20',false,'center',53);
     }
-    label("居民街石阶",55,Y(-23.8),14,'#cec4a7');
-    stroke([[145,Y(-18.2)],[X(stairs[0].x)-5,Y(-14)]],'#ac9e80',1);
-    dot(X(forkX),Y(forkZ),'#e5b173',4.5);
-    dot(X(serviceGate.x),Y(serviceGate.z),'#e5b173',4.5);
-    label("搬运道岔口",X(forkX)+10,Y(-29.4),14,'#e5d7ba',true);
-    label("排水检修门",69,Y(-47.2),15,'#e5d7ba',true);
-    stroke([[155,Y(-43.0)],[X(serviceGate.x)-6,Y(serviceGate.z)+3]],'#c0b195',1);
-    label("约 40 米",X(8),Y(-11.3)+1,13,'#dbcca7');
-    label("约 30 米",X(31),Y(-10.8)+1,13,'#dbcca7');
-    label("约 45 米",X(forkX)+8,Y(-40.2)-5,13,'#dbcca7');
+    label("居民街石阶",55,Y(-23.8),14,'#54412c');
+    stroke([[145,Y(-18.2)],[X(stairs[0].x)-5,Y(-14)]],'#947d5d',1);
+    dot(X(forkX),Y(forkZ),'#a16a45',4.5);
+    dot(X(serviceGate.x),Y(serviceGate.z),'#a16a45',4.5);
+    label("搬运道岔口",X(forkX)+10,Y(-29.4),14,'#4b3525',true);
+    label("排水检修门",69,Y(-47.2),15,'#4b3525',true);
+    stroke([[155,Y(-43.0)],[X(serviceGate.x)-6,Y(serviceGate.z)+3]],'#8a6d50',1);
+    label("约 40 米",X(8),Y(-11.3)+1,13,'#5a442e');
+    label("约 30 米",X(31),Y(-10.8)+1,13,'#5a442e');
+    label("约 45 米",X(forkX)+8,Y(-40.2)-5,13,'#5a442e');
     for(const berth of berths){
       const {boat,land,section}=berthAt(berth);
-      stroke([[X(land.x),Y(land.z)],[X(boat.x),Y(boat.z)]],'#d2a56e',4);
+      stroke([[X(land.x),Y(land.z)],[X(boat.x),Y(boat.z)]],'#956039',4);
       const p=riverPoint(section,berth.side*riverHalfWidth);
-      dot(X(p.x),Y(p.z),'#ffdda0',4.8);
-      if(berth.stone)label("系船石台",X(p.x)-12,Y(p.z)+38,14,'#f0daa8',true,'right');
+      dot(X(p.x),Y(p.z),'#a67447',4.8);
+      if(berth.stone)label("系船石台",X(p.x)-12,Y(p.z)+38,14,'#553721',true,'right');
     }
     if(player){
-      dot(X(player.x),Y(player.z),'#222921',8.3);
-      dot(X(player.x),Y(player.z),'#ffdc83',5.4);
+      dot(X(player.x),Y(player.z),'#503526',7.5);
+      dot(X(player.x),Y(player.z),'#d59d66',5.8);
+      dot(X(player.x),Y(player.z),'#984332',3.9);
     }
-    stroke([[75,641],[75+20*4.66,641]],'#d3c7a7',2);
-    stroke([[75,637],[75,645]],'#d3c7a7',2);
-    stroke([[75+20*4.66,637],[75+20*4.66,645]],'#d3c7a7',2);
-    label("20 米（东西向）",75,662,14,'#cbbf9d');
+    stroke([[75,641],[75+20*4.66,641]],'#74593e',2);
+    stroke([[75,637],[75,645]],'#74593e',2);
+    stroke([[75+20*4.66,637],[75+20*4.66,645]],'#74593e',2);
+    label("20 米（东西向）",75,662,14,'#61482f');
 
-    label("井字水网",993,72,26,'#eee4cb',true);
-    label("两纵两横，四处交汇",993,126,18,'#e1d7bd',false,'left',387);
-    label("沿岸步道与四处靠岸点",993,171,18,'#e1d7bd');
-    stroke([[992,219],[1380,219]],'#50574a',1.4);
-    const legend=[['#345e57',"可通船水道"],['#a59a7e',"沿河步道"],['#bda77c',"酒馆与搬运道"],
-      ['#76ab99',"城内排水干渠"],['#ffdda0',"栈台与石台"],['#604744',"黑龙巢穴"],['#4e5a53',"矿洞预留区"]];
+    label("井字水网",993,72,26,'#492e1c',true);
+    label("两纵两横，四处交汇",993,126,18,'#634831',false,'left',387);
+    label("沿岸步道与四处靠岸点",993,171,18,'#634831');
+    stroke([[992,219],[1380,219]],'#9c7b56',1.4);
+    const legend=[[riverTint,"可通船水道"],['#b79d70',"沿河步道"],['#b79666',"酒馆与搬运道"],
+      ['#8fa493',"城内排水干渠"],['#a67447',"栈台与石台"],['rgba(141,92,61,.31)',"黑龙巢穴"],['#a99c76',"矿洞预留区"]];
     legend.forEach(([color,name],i)=>{
       const y=246+i*46;
-      if(i===4)dot(1007,y+6,color,6);
+      if(i===4)dot(1007,y,color,5.2);
       else{
         ctx.fillStyle=color;
-        ctx.fillRect(993,y,28,12);
+        ctx.fillRect(993,y-6,28,12);
+        ctx.strokeStyle='rgba(88,61,37,.57)';
+        ctx.lineWidth=.9;
+        ctx.strokeRect(993.5,y-5.5,27,11);
       }
-      label(name,1043,y,18,'#ddd2b7');
+      label(name,1043,y,18,'#533a28');
     });
-    stroke([[992,581],[1380,581]],'#50574a',1.4);
-    label("虚线为龙巢上方通往山坡的通道",993,608,15,'#c6b795',false,'left',387);
-    label("平面示意，步行距离按通道计",993,644,15,'#c6b795',false,'left',387);
+    stroke([[992,581],[1380,581]],'#9c7b56',1.4);
+    label("虚线为龙巢上方通往山坡的通道",993,608,15,'#685038',false,'left',387);
+    label("平面示意，步行距离按通道计",993,644,15,'#685038',false,'left',387);
 
-    label("高程关系",53,721,25,'#252923',true);
-    label("以地下河平水面为零点",1382,727,16,'#50584d',false,'right',525);
+    label("高程关系",53,721,25,'#49311e',true);
+    label("以地下河平水面为零点",1382,727,16,'#614c36',false,'right',525);
     const levels=[["地面 +7 米",774],["酒馆 +3 米",806],["石台 +1 米",844],["水面 ±0 米",880]];
     for(const [text,y] of levels){
-      label(text,56,y-5,15,'#454838');
-      stroke([[209,y],[1382,y]],'#beb49a',1,[6,6]);
+      label(text,56,y-5,15,'#58412b');
+      stroke([[209,y],[1382,y]],'#a68d62',1,[6,6]);
     }
-    stroke([[215,774],[289,774],[340,806],[585,806],[637,815],[744,815],[807,844],[986,844]],'#705d43',5);
-    stroke([[982,844],[1176,844],[1241,844]],'#9c5947',2,[9,6]);
-    stroke([[947,810],[1016,820],[1091,842],[1181,879]],'#588372',3.5);
-    ctx.fillStyle='#91ab9a';
-    ctx.fillRect(1180,880,202,13);
-    label("干渠向入河口下坡",1027,787,16,'#526c5d');
-    label("高水警戒线",1265,832,15,'#8b5346',false,'left',120);
+    stroke([[215,774],[289,774],[340,806],[585,806],[637,815],[744,815],[807,844],[986,844]],'#5f432c',5);
+    stroke([[982,844],[1176,844],[1241,844]],'#99513c',2,[9,6]);
+    stroke([[947,810],[1016,820],[1091,842],[1181,879]],'#537967',3.5);
+    ctx.fillStyle='#829d88';
+    ctx.fillRect(1180,880,202,11);
+    for(let x=1185;x<1380;x+=13)stroke([[x,886],[x+5,885.6],[x+10,886.1]],'rgba(58,97,86,.41)',.65);
+    label("干渠向入河口下坡",1027,787,16,'#365441');
+    label("高水警戒线",1265,832,15,'#8a4a37',false,'left',120);
   }
 
   function pantryCrate(parent,x,y,z,w,d){
