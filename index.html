@@ -290,7 +290,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const kitchenDoorway={x:.57,z:4.80,half:.76};
   const kitchenRoom={x:.62,z:8.15,halfWidth:3.40,halfDepth:3.30,height:3.14};
   const hallPavingDepth=9.7;
-  const stairStart=-10.43;
+  const stairStart=-9.40;
   const tread=.32;
   const upperPassage={
     west:{minX:-21.6,maxX:.68,minZ:stairStart,maxZ:-hallPavingDepth/2},
@@ -4235,6 +4235,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
       const seat=table.localToWorld(V(seatX,0,seatZ));
       stool(seat.x,seat.z,turn+seatTurn);
     }
+    return table;
   }
 
   function woodenTable(x,z,w,d,ang,slabSeed){
@@ -5217,20 +5218,415 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     return {actor,broom,feet,update};
   }
 
+  function patronCloth(kind,variant,color){
+    const material=matte(kind,variant).clone();
+    material.color.setHex(color);
+    return pixelLit(material);
+  }
+
+  function goblinHead(head){
+    const skin=solid(0x768044),light=solid(0x96964f),fold=solid(0x4e4c26);
+    loft(head,[[-.105,.050,.047,.025],[-.080,.071,.072,.022],[-.047,.093,.090,.009],
+      [.005,.106,.094],[.059,.102,.099,-.014],[.108,.084,.086,-.020],
+      [.144,.046,.050,-.022],[.151,.020,.029,-.033]],12,skin,.0016,.12);
+    for(const side of [-1,1]){
+      const ear=group(head,side*.090,.010,-.017,side*-.23);
+      const pinna=[[.013,-.036,.031],[.054,-.044,.039],[.101,-.032,.037],
+        [.131,.003,.036],[.201,.053,.025],[.146,.064,.042],[.078,.058,.055],[.031,.031,.049]];
+      beveledRelief(ear,pinna.map(([x,y,z])=>[side*x,y,z]),.053,skin,.0015);
+      const bowl=[[.042,-.024,.046],[.080,-.023,.047],[.100,-.005,.046],
+        [.147,.037,.041],[.091,.028,.057],[.061,.022,.062]];
+      beveledRelief(ear,bowl.map(([x,y,z])=>[side*x,y,z]),.009,fold,0);
+      const features=group(head,side*.057,.010,.085,side*.36);
+      beveledRelief(features,[[-.035,-.009,.012],[-.024,-.022,.018],[.024,-.021,.016],
+        [.036,.009,.010],[.008,.015,.019],[-.026,.008,.017]],.020,fold,.0011);
+      block(features,side*-.005,-.009,.024,.022,.013,.007,solid(0xca933a),false);
+      block(features,side*-.003,-.008,.029,.006,.011,.003,char,false);
+      beveledRelief(features,[[-.039,.008,.023],[-.025,.041,.021],[.005,.041,.025],
+        [.045,.017,.007],[.019,.011,.021],[-.016,-.002,.029]],.029,skin,.001);
+      beveledRelief(head,[[.073,-.025,.077],[.105,-.009,.053],[.098,-.044,.063],
+        [.062,-.061,.084],[.031,-.056,.102],[.051,-.039,.103]].map(([x,y,z])=>[side*x,y,z]),.022,light,0);
+    }
+    // The hooked tip projects past the upper lip in profile.
+    loft(head,[[-.054,.015,.025,.154],[-.033,.023,.034,.151],
+      [-.004,.025,.031,.135],[.030,.019,.022,.109],[.057,.018,.011,.084]],8,light,.0010,.23);
+    const mouth=group(head,0,-.076,.084);
+    beveledRelief(mouth,[[-.054,.003,.010],[-.029,.012,.020],[.014,.007,.027],
+      [.057,.015,.009],[.042,-.009,.013],[-.023,-.010,.024]],.010,char,0);
+    for(const [x,height,z] of [[-.032,.011,.022],[.027,.017,.023],[.040,.010,.019]]){
+      const tooth=loft(mouth,[[-.006,.006,.004,z,x],[height-.006,.002,.002,z+.001,x+.004]],
+        5,solid(0xbcaa7b),0);
+      tooth.castShadow=false;
+    }
+    for(const [y,width,front] of [[.074,.125,.081],[.100,.108,.065]]){
+      beveledRelief(head,[[-width/2,y+.004,front-.017],[-width*.18,y,front+.008],
+        [width*.22,y-.004,front+.006],[width/2,y+.004,front-.016],[.014,y+.005,front+.011]],.009,fold,0);
+    }
+  }
+
+  function minotaurHead(head){
+    const hide=solid(0x925d3f),cheek=solid(0x75442f),nose=solid(0xa06953),coat=solid(0x4d3023);
+    const horn=solid(0xbfaa78),weatheredTip=solid(0x82654a);
+    loft(head,[[-.136,.097,.087,.024],[-.099,.150,.138,.031],[-.040,.174,.153,.024],
+      [.039,.170,.137,.007],[.117,.141,.132,-.022],[.157,.097,.110,-.035]],12,hide,.0023,.15);
+    // Two separate volumes leave a real lip line below the broad bovine nose.
+    loft(head,[[-.147,.085,.050,.167],[-.121,.109,.071,.167],[-.099,.115,.071,.166]],
+      9,cheek,.0014,.30);
+    loft(head,[[-.108,.102,.056,.186],[-.088,.122,.067,.190],[-.037,.128,.065,.180],
+      [.006,.112,.057,.152],[.060,.085,.043,.107]],10,hide,.0017,Math.PI/10);
+    beveledRelief(head,[[-.100,-.094,.242],[-.116,-.048,.224],[-.084,-.033,.239],
+      [.080,-.033,.239],[.116,-.047,.225],[.102,-.096,.240],[0,-.108,.253]],.028,nose,.0016);
+    for(const side of [-1,1]){
+      const socket=group(head,side*.111,.024,.106,side*.55);
+      beveledRelief(socket,[[-.041,-.009,.014],[-.021,.006,.026],[.018,.005,.024],
+        [.039,-.011,.013],[.006,-.025,.024],[-.022,-.024,.024]],.029,char,.0009);
+      block(socket,-side*.002,-.012,.034,.024,.015,.007,solid(0xb99556),false);
+      block(socket,side*.003,-.011,.039,.009,.011,.004,char,false);
+      beveledRelief(socket,[[-.043,.005,.017],[-.030,.035,.020],[.025,.034,.019],
+        [.043,.015,.005],[.018,.009,.028],[-.019,.002,.032]],.037,coat,.0017);
+      const nostril=group(head,side*.060,-.055,.245,side*.24);
+      beveledRelief(nostril,[[-.024,-.011,.004],[-.014,.010,.010],[.017,.014,.009],
+        [.024,-.002,.007],[.009,-.013,.011]],.009,cheek,0);
+      const ear=group(head,side*.142,.012,-.010,side*-.30);
+      const mirror=points=>points.map(([x,y,z])=>[x*side,y,z]);
+      beveledRelief(ear,mirror([[.009,-.041,.040],[.050,-.063,.044],[.141,-.090,.030],
+        [.135,-.054,.043],[.083,.007,.051],[.030,.015,.062]]),.064,hide,.002);
+      beveledRelief(ear,mirror([[.029,-.030,.062],[.085,-.060,.046],[.110,-.066,.045],
+        [.096,-.038,.054],[.057,-.011,.066]]),.022,nose,0);
+      carvedLock(head,[[.125,.105,-.018,.063,.062],[.186,.092,-.021,.057,.056],
+        [.250,.097,-.031,.053,.051],[.309,.121,-.045,.047,.047],
+        [.342,.175,-.056,.038,.042],[.328,.217,-.066,.028,.035]]
+        .map(([x,...section])=>[side*x,...section]),horn,.0011);
+      carvedLock(head,[[side*.328,.214,-.066,.029,.034],[side*.303,.266,-.083,.016,.025],
+        [side*.276,.294,-.103,.002,.004]],weatheredTip,.0008);
+    }
+    for(const [x,y,z,width] of [[0,.152,-.05,.074],[-.066,.145,-.053,.061],[.068,.138,-.057,.057],
+      [-.118,.092,-.064,.053],[.110,.080,-.065,.058],[0,.083,-.138,.081],
+      [-.076,.051,-.123,.064],[.076,.032,-.120,.068],[0,-.013,-.144,.085]]){
+      carvedLock(head,[[x,y+.035,z+.047,width*.65,.039],[x,y,z,width,.047],
+        [x*.93,y-.095,z-.056,width*.54,.029],[x*.84,y-.148,z-.046,.009,.010]],coat,.0011);
+    }
+  }
+
+  function patronSeat(actor,large){
+    const width=large?.82:.49,depth=large?.60:.42,height=large?.496:.575;
+    for(const [side,variant] of [[-1,4],[1,1]]){
+      hewnBoard(actor,0,height-.041,side*depth*.24,width,.083,depth*.495,matte('weathered',variant));
+      for(const end of [-1,1]){
+        const x=end*(width/2-.081),z=side*(depth/2-.051);
+        block(actor,x,(height-.068)/2,z,.092,height-.068,.105,matte('oak',end+3),true,.42,end*.043);
+        block(actor,x,height+.004,z,.035,.009,.033,matte('ash',side+2),false);
+      }
+    }
+    for(const z of [-depth*.39,depth*.40]){
+      const railY=large?.14:.240;
+      block(actor,0,railY,z,width-.086,.057,.068,matte('salvaged',2),true,.43);
+    }
+    for(const x of [-width*.35,width*.35]){
+      block(actor,x,.188,0,.066,.060,depth-.074,matte('weathered',2),true,.36);
+    }
+    collider(actor,0,.035,width+.14,depth+.11);
+  }
+
+  function patronBody(actor,large,skin,trousers){
+    const torso=group(actor,0,large?0:.100);
+    const vest=large?patronCloth('canvas',2,0xc7c7af):patronCloth('strap',1,0xdebd97);
+    const sash=large?patronCloth('canvas',3,0xae7a52):patronCloth('rag',2,0xc07b62);
+    const thread=solid(large?0x917354:0xa17c50);
+    const beltHeight=large?.714:.619;
+    const hipY=large?.550:.618;
+    const wide=large?.31:.131;
+    const kneeZ=large?.405:.221;
+    const chest=large?[[.54,.287,.178],[.61,.307,.183],[.75,.280,.166],
+      [.939,.339,.203,.020],[1.144,.388,.219,.016],[1.233,.279,.175],[1.263,.150,.130,.013]]:
+      [[.49,.119,.099],[.540,.147,.110],[.632,.126,.091],[.749,.158,.109,.012],
+        [.834,.180,.100,.028],[.889,.089,.076,.045]];
+    loft(torso,chest,12,vest,.0018,Math.PI/12);
+    const neck=large?[[1.180,.169,.132,.012],[1.274,.162,.131,.040],[1.380,.139,.122,.062]]:
+      [[.835,.066,.063,.043],[.890,.062,.055,.058],[.960,.059,.057,.079]];
+    loft(torso,neck,10,skin,.0011);
+    loft(torso,[[beltHeight-.047,wide,.174*(large?1:.61)],[beltHeight-.009,wide*1.024,.177*(large?1:.62)],
+      [beltHeight+.018,wide*.999,.172*(large?1:.62)],[beltHeight+.046,wide*.949,.165*(large?1:.61)]],
+      12,sash,.0018,Math.PI/12);
+    const knot=group(torso,wide*.45,beltHeight,large?.180:.113,.18);
+    loft(knot,[[-.028,.019,.015],[-.006,.043,.034],[.022,.046,.034],[.035,.025,.022]],8,sash,.001);
+    for(const side of [-1,1]){
+      beveledRelief(knot,[[side*.001,.01,.017],[side*.039,-.034,.022],[side*.054,-.151,.043],
+        [side*.024,-.174,.054],[side*.003,-.083,.037]],.020,sash,.0011);
+    }
+
+    if(large){
+      const strap=matte('strap',2);
+      for(const back of [false,true]){
+        const band=group(torso,0,0,0,back?Math.PI:0);
+        const points=[],texels=[];
+        function strapPoint(t,side){
+          const y=Math.min(1.262,1.245-.489*t+side*.025);
+          const x=-.194+.419*t+side*.031;
+          const upper=chest.findIndex(([height])=>height>=y);
+          const [a,w,d,z=0]=chest[Math.max(0,upper-1)];
+          const [b,width,depth,center=0]=chest[upper<0?chest.length-1:upper];
+          const fraction=clamp((y-a)/(b-a),0,1);
+          const across=THREE.MathUtils.lerp(w,width,fraction);
+          const front=THREE.MathUtils.lerp(d,depth,fraction);
+          const offset=THREE.MathUtils.lerp(z,center,fraction)*(back?-1:1);
+          return [x,y,offset+front*Math.sqrt(1-Math.min(.991,x*x/(across*across)))+.010];
+        }
+        const divisions=20;
+        for(let i=0;i<divisions;i++){
+          const a=i/divisions,b=(i+1)/divisions;
+          for(const [t,edge] of [[a,-1],[b,-1],[b,1],[a,-1],[b,1],[a,1]]){
+            points.push(...strapPoint(t,edge));
+            texels.push(edge===-1?0:.19,t*1.3);
+          }
+          if(i%2===0){
+            for(const edge of [-1,1]){
+              const [x,y,z]=strapPoint((a+b)/2,edge*.74);
+              block(band,x,y,z+.004,.005,.012,.006,thread,false,0,.74);
+            }
+          }
+        }
+        modeledMesh(band,points,texels,strap);
+      }
+      carvedLock(actor,[[0,.636,-.163,.034,.032],[.018,.497,-.251,.025,.026],
+        [.051,.326,-.321,.015,.018],[.112,.202,-.325,.012,.013]],skin,.0011);
+      carvedLock(actor,[[.104,.231,-.319,.016,.019],[.122,.173,-.336,.040,.032],
+        [.133,.104,-.347,.008,.012]],solid(0x422d20),.0016);
+    }else{
+      beveledRelief(torso,[[-.149,.826,.085],[-.083,.871,.106],[.047,.711,.127],
+        [.126,.637,.109],[.062,.604,.116],[-.041,.695,.132],[-.121,.782,.110]],.019,vest,.0017);
+      for(let i=0;i<7;i++){
+        block(torso,-.091+i*.031,.835-i*.032,.119+Math.sin(i/6*Math.PI)*.025,.029,.008,.008,
+          thread,false,0,.63);
+      }
+    }
+
+    for(const side of [-1,1]){
+      const hipX=side*(large?.179:.083),kneeX=side*(large?.206:.098);
+      const kneeY=large?.450:.534,footZ=large?.360:.232;
+      limb(actor,[hipX,hipY,-.037],[kneeX,kneeY,kneeZ],large?.316:.156,large?.272:.131,trousers,.0019);
+      const knee=group(actor,kneeX,kneeY,kneeZ);
+      loft(knee,[[-.071,large?.114:.055,large?.105:.050],[-.044,large?.125:.063,large?.121:.055],
+        [.037,large?.139:.070,large?.133:.064],[.090,large?.106:.052,large?.100:.046,-.031]],
+        9,trousers,.0014,.22);
+      const patch=group(knee,.009,.004,large?.125:.058,.09);
+      block(patch,0,0,0,large?.096:.047,large?.070:.045,.009,matte('strap',1),false,0,-.11);
+      for(const x of [-1,1])for(let i=-1;i<=1;i++){
+        block(patch,x*(large?.044:.021),i*(large?.019:.012),.007,large?.021:.012,.005,.006,
+          thread,false,0,.25*i);
+      }
+      const bottom=large?0:.269;
+      const foot=group(actor,kneeX,bottom,footZ,side*.14);
+      limb(actor,[kneeX,kneeY-.056,kneeZ],[kneeX,bottom+(large?.103:.046),footZ-.016],
+        large?.178:.073,large?.169:.068,skin,.0012);
+      if(large){
+        loft(foot,[[.062,.086,.071,-.028],[.129,.077,.074,-.037],[.202,.082,.076,-.047],
+          [.235,.068,.057,-.024]],8,skin,.0012,.22);
+        for(const toe of [-1,1]){
+          loft(foot,[[.007,.047,.101,.025,toe*.047],[.049,.044,.091,.024,toe*.047],
+            [.094,.036,.067,-.009,toe*.037]],7,solid(0x44362b),.0013,.40);
+        }
+      }else{
+        loft(foot,[[0,.048,.072,.019],[.033,.056,.075,.019],[.063,.039,.052,-.011]],
+          8,skin,.001,.20);
+        for(let i=0;i<4;i++){
+          loft(foot,[[.001,.014,.024,.081-i*.006,(i-1.5)*.024],
+            [.025,.012,.019,.080-i*.006,(i-1.5)*.024]],6,skin,.0005,.40);
+        }
+      }
+    }
+    return torso;
+  }
+
+  function tavernMeal(actor,large,reach){
+    const dish=group(actor,large?.215:.146,.862,reach+.075);
+    dish.name='patron-dish';
+    const earthenware=matte('clay',large?2:4);
+    const rim=large?.182:.128;
+    const profile=[[0,0],[rim*.52,0],[rim*.58,.008],[rim*.95,.042],[rim,.053],
+      [rim*.94,.060],[rim*.87,.048],[rim*.52,.022],[0,.022]];
+    dish.add(new THREE.Mesh(new THREE.LatheGeometry(profile.map(([r,y])=>new THREE.Vector2(r,y)),13),
+      earthenware));
+    if(large){
+      const roast=group(dish,-.014,.026,.003,.53);
+      loft(roast,[[0,.068,.061],[.019,.085,.075],[.055,.066,.059],[.080,.045,.034,-.01]],
+        9,solid(0x5c2c17),.0018,.11);
+      for(let i=0;i<3;i++){
+        const cut=group(roast,-.036+i*.031,.033,.051+i*.009,-.40);
+        loft(cut,[[0,.027,.030],[.018,.039,.025],[.034,.028,.019,-.008]],7,solid(0xa26043),.0011);
+      }
+    }else{
+      loft(dish,[[.032,rim*.69,rim*.69],[.037,rim*.76,rim*.76]],13,solid(0x75421e),0);
+    }
+    for(const [i,[x,z]] of [[-.073,-.023],[.070,.036],[.023,-.060],[-.017,.062],
+      [.059,-.035],[-.043,.043]].entries()){
+      const vegetable=group(dish,x*(large?1.44:1),large?.040:.035,z*(large?1.44:1),i*1.16);
+      loft(vegetable,[[0,.018,.014],[.012,.023,.021],[.035,.017,.016]],6,
+        solid([0xbb9050,0x945c29,0x8d9255][i%3]),.0009);
+    }
+    if(large){
+      bottle(actor,-.143,.862,reach+.35,.77,'clay');
+    }else{
+      const loaf=group(actor,.05,.863,reach+.280,.48);
+      loft(loaf,[[0,.084,.062],[.020,.104,.065],[.057,.101,.061],[.096,.071,.052],
+        [.106,.042,.028,-.009]],9,matte('bread',4),.0015,.22);
+      for(const [x,z,y] of [[-.037,-.011,.090],[.017,-.015,.102],[.051,-.009,.091]]){
+        const score=block(loaf,x,y,z,.009,.004,.053,solid(0xbd8950),false);
+        score.rotation.y=-.56;
+      }
+    }
+    return dish.position;
+  }
+
+  function createTavernPatron(table,seatX,seatZ,turn,large){
+    const actor=group(table,seatX,0,seatZ,turn);
+    actor.name=large?'minotaur-patron':'goblin-patron';
+    const skin=solid(large?0x8d5234:0x748043);
+    const trousers=patronCloth('keeperApron',large?1:2,large?0xb89977:0xa09883);
+    patronSeat(actor,large);
+    const torso=patronBody(actor,large,skin,trousers);
+    const head=group(torso,0,large?1.454:1.014,large?.111:.075);
+    head.name='patron-head';
+    if(large)minotaurHead(head);
+    else goblinHead(head);
+
+    const reach=large?.607:.448,scale=large?1.24:.87;
+    const dish=tavernMeal(actor,large,reach);
+    const mug=group(actor);
+    mug.name='patron-mug';
+    const cup=group(mug,0,0,0,Math.PI);
+    cup.scale.setScalar(scale);
+    stockedCup(cup,tavernCups[large?0:1]);
+    const wine=new THREE.Mesh(new THREE.CircleGeometry(large?.057:.050,12),
+      new THREE.MeshStandardMaterial({color:0x51201f,roughness:.51}));
+    wine.rotation.x=-Math.PI/2;
+    wine.position.y=large?.099:.094;
+    cup.add(wine);
+
+    const bread=group(actor);
+    bread.name='patron-bread';
+    const piece=group(bread,0,0,0,.20);
+    piece.scale.setScalar(large?1.27:.75);
+    loft(piece,[[-.006,.033,.029],[.008,.043,.030],[.033,.037,.032],[.046,.023,.023,-.008]],
+      7,matte('bread',2),.0011,.26);
+    loft(piece,[[.044,.021,.022,-.009],[.049,.015,.017,-.008]],7,solid(0xc49a66),0,.26);
+
+    const upperLength=large?.358:.218,foreLength=large?.365:.251;
+    const arms=[-1,1].map(side=>{
+      const upper=group(actor),forearm=group(actor),hand=group(actor);
+      const bulk=large?1:.45,grip=large?1:.61;
+      loft(upper,[[0,.094*bulk,.088*bulk],[upperLength*.23,.140*bulk,.124*bulk],
+        [upperLength*.63,.119*bulk,.105*bulk],[upperLength,.087*bulk,.084*bulk]],9,skin,.0015,.19);
+      loft(forearm,[[0,.089*bulk,.085*bulk],[foreLength*.26,.106*bulk,.097*bulk],
+        [foreLength*.69,.081*bulk,.076*bulk],[foreLength,.058*bulk,.052*bulk]],9,skin,.0013,.16);
+      const fist=group(hand);
+      fist.scale.setScalar(grip);
+      loft(fist,[[-.049,.044,.034],[-.017,.057,.041],[.030,.056,.040],
+        [.046,.038,.031]],8,skin,.0012,.30);
+      for(let i=0;i<4;i++){
+        const y=.031-i*.018;
+        limb(fist,[-side*.026,y,.029],[-side*.058,y-.007,.050],.021,.022,skin,.0008);
+        limb(fist,[-side*.055,y-.007,.049],[-side*.068,y-.010,.021],.020,.018,skin,.0006);
+      }
+      limb(fist,[-side*.017,.035,-.023],[-side*.052,.042,.002],.032,.026,skin,.0008);
+      return {side,upper,forearm,hand};
+    });
+    actor.traverse(node=>{if(node.isMesh)node.castShadow=false;});
+
+    const vertical=V(0,1,0),pitchAxis=V(1,0,0),mouth=V(),wrist=V(),shoulder=V(),rim=V();
+    const swing=V(),elbow=V(),elbowOut=V(),segment=V();
+    const mugHome=V(large?-.236:-.158,.864,reach);
+    const foodHome=V(dish.x,large?.946:.929,dish.z-.036);
+    const drinkAt=large?7.4:.81,eatAt=large?1.8:7.3,cycle=large?15.6:13.1;
+    const smooth=THREE.MathUtils.smoothstep;
+    const move=(time,start,rise,hold,fall)=>{
+      const elapsed=time-start;
+      return smooth(elapsed,0,rise)*(1-smooth(elapsed,rise+hold,rise+hold+fall));
+    };
+    function align(node,from,to,length){
+      segment.copy(to).sub(from);
+      const distance=segment.length();
+      node.position.copy(from);
+      node.quaternion.setFromUnitVectors(vertical,segment.divideScalar(Math.max(.001,distance)));
+      node.scale.y=distance/length;
+    }
+    function update(time){
+      const phase=time%cycle;
+      const drink=move(phase,drinkAt,1.05,.75,.94);
+      const eat=move(phase,eatAt,.91,.41,.80);
+      const chew=smooth(phase,eatAt+.88,eatAt+1.13)*(1-smooth(phase,eatAt+2.20,eatAt+3.01));
+      const breath=Math.sin(time*(large?1.69:2.24))*.011;
+      const glance=Math.sin(time*.43+(large?1.7:.2));
+      torso.rotation.x=.031+breath+.057*drink+.049*eat;
+      torso.position.z=.54*Math.sin(torso.rotation.x);
+      torso.position.y=(large?0:.100)+.54*(1-Math.cos(torso.rotation.x));
+      head.rotation.x=.020+breath+eat*.099-drink*.115+chew*.020*Math.sin(time*13.6);
+      head.rotation.y=(large?-1:1)*.17*glance*(1-Math.max(drink,eat))+.065*(drink-eat);
+      head.rotation.z=.020*Math.sin(time*.75)+.030*(eat-drink);
+      mouth.set(0,large?-.112:-.077,large?.246:.114)
+        .applyQuaternion(head.quaternion).add(head.position)
+        .applyQuaternion(torso.quaternion).add(torso.position);
+
+      mug.rotation.x=drink*(large?-.90:-.84);
+      mug.rotation.z=drink*.065;
+      rim.set(0,(large?.159:.155)*scale,-(large?.076:.068)*scale).applyQuaternion(mug.quaternion);
+      mug.position.copy(mugHome).lerp(rim.negate().add(mouth),drink);
+      // Keep the tankard above the slab while the rim reaches the lower lip.
+      mug.position.y=Math.max(mugHome.y,mug.position.y)+.032*Math.sin(drink*Math.PI);
+      bread.position.copy(foodHome).lerp(mouth,eat);
+      bread.position.y+=.049*Math.sin(eat*Math.PI);
+      bread.rotation.x=-.35*eat+.12;
+      const bite=smooth(phase,eatAt+.95,eatAt+1.30);
+      bread.scale.setScalar(1-.96*bite*(1-smooth(phase,eatAt+2.25,eatAt+2.91)));
+
+      for(const {side,upper,forearm,hand} of arms){
+        shoulder.set(side*(large?.342:.159),large?1.162:.819,large?.014:.028)
+          .applyQuaternion(torso.quaternion).add(torso.position);
+        if(side<0){
+          wrist.set(-.111*scale,.087*scale,.015).applyQuaternion(mug.quaternion).add(mug.position);
+          hand.rotation.copy(mug.rotation);
+        }else{
+          wrist.copy(bread.position).addScaledVector(pitchAxis,large?.061:.036);
+          wrist.z-=large?.036:.028;
+          hand.rotation.set(-.34+eat*.49,.29*eat,-.42);
+        }
+        swing.copy(wrist).sub(shoulder);
+        const distance=Math.max(.001,swing.length());
+        swing.divideScalar(distance);
+        const split=clamp((distance*distance+upperLength*upperLength-foreLength*foreLength)/(2*distance),
+          upperLength*.07,upperLength*.975);
+        elbowOut.set(side*.77,-.91,-.51).addScaledVector(swing,
+          -elbowOut.dot(swing)).normalize();
+        elbow.copy(shoulder).addScaledVector(swing,split)
+          .addScaledVector(elbowOut,Math.sqrt(upperLength*upperLength-split*split));
+        align(upper,shoulder,elbow,upperLength);
+        align(forearm,elbow,wrist,foreLength);
+        hand.position.copy(wrist);
+      }
+    }
+    update(0);
+    return {actor,update};
+  }
+
   buildRoom();
   northPassages();
   buildWaterways();
   backKitchen();
   const fireplace=hearth();
   shelves();
-  for(const table of [
+  const [,diningTable]=[
     {x:-4.92,z:.21,width:2.36,depth:1.34,turn:Math.PI/2,wood:1071,
       seats:[[-.65,1.04,.09],[.62,1.03,-.13]]},
     {x:-.66,z:-2.83,width:2.14,depth:1.18,turn:.035,wood:3629,
-      seats:[[-.57,-.93,.05],[.53,-.93,-.10],[-.58,.95,.14],[.51,.94,-.11]]},
+      seats:[[-.58,.95,.14],[.51,.94,-.11]]},
     {x:-4.96,z:3.23,width:2.31,depth:1.27,turn:Math.PI/2,wood:6071,
       seats:[[-.66,.98,-.08],[.56,1.00,.11]]}
-  ])servingTable(table);
+  ].map(servingTable);
+  const patrons=[
+    createTavernPatron(diningTable,-.56,-.915,.13,false),
+    createTavernPatron(diningTable,.495,-1.065,-.15,true)
+  ];
+  let patronsTime=0;
   backBarShelves();
   const {g,c}=counter();
   shopkeeper(g);
@@ -5590,6 +5986,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     c.intensity=1.32+.08*Math.sin(time*.019);
     updateWaterways(time,transition,dt);
     updateSleepingDragon(time);
+    if(camera.position.x>-6&&camera.position.x<6&&camera.position.z>-4.9&&camera.position.z<12){
+      patronsTime+=dt;
+      for(const patron of patrons)patron.update(patronsTime);
+    }
     if(Math.abs(camera.position.x)<15&&Math.abs(camera.position.z)<13)helper.update(dt);
     renderer.render(scene,camera);
     requestAnimationFrame(frame);
